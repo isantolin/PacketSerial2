@@ -7,6 +7,7 @@
 #include <etl/bitset.h>
 #include <etl/span.h>
 #include <etl/expected.h>
+#include <etl/algorithm.h>
 
 #include "ErrorCode.h"
 #include "ICodec.h"
@@ -26,7 +27,7 @@ struct NoCRC {
 };
 
 /**
- * @brief Industrial-grade PacketSerial implementation (v2.1).
+ * @brief Industrial-grade PacketSerial implementation (v2.2).
  * 
  * Features:
  * - ISR-Safe: Customizable Locking Policy (Atomic sections).
@@ -50,14 +51,6 @@ public:
     using PacketHandler = etl::delegate<void(etl::span<const uint8_t>)>;
     using ErrorHandler = etl::delegate<void(ErrorCode)>;
 
-    /**
-     * @brief Construct PacketSerial with external memory and safety policies.
-     * 
-     * @param rx_storage Buffer for raw incoming bytes.
-     * @param work_buffer Buffer for decoding/encoding (must be large enough).
-     * @param lock User-provided lock instance (optional).
-     * @param watchdog User-provided watchdog instance (optional).
-     */
     PacketSerial(etl::span<uint8_t> rx_storage, 
                  etl::span<uint8_t> work_buffer,
                  LockPolicy lock = LockPolicy(),
@@ -72,8 +65,6 @@ public:
 
     /**
      * @brief Process incoming data from a stream.
-     * 
-     * Uses the LockPolicy to protect the internal circular buffer.
      */
     template <typename StreamType>
     void update(StreamType& stream) {
@@ -81,18 +72,25 @@ public:
             uint8_t data = static_cast<uint8_t>(stream.read());
 
             if (data == Codec::Marker) {
-                // Critical section starts for buffer access
+                size_t bytes_to_process = 0;
+                
                 _lock.lock();
-                bool has_data = !_rx_buffer.empty();
+                bytes_to_process = _rx_buffer.size();
+                if (bytes_to_process > 0) {
+                    // [SIL-2] Atomic linearization to work buffer
+                    for (size_t i = 0; i < bytes_to_process; ++i) {
+                        _work_buffer[i] = _rx_buffer[i];
+                    }
+                    _rx_buffer.clear();
+                }
                 _lock.unlock();
 
-                if (has_data) {
-                    processPacket();
+                if (bytes_to_process > 0) {
+                    processFrame(bytes_to_process);
                 }
             } else {
                 _lock.lock();
                 if (_rx_buffer.full()) {
-                    _status.set(STATUS_OVERFLOW);
                     _rx_buffer.clear(); 
                     _lock.unlock();
                     handleError(ErrorCode::BufferOverflow);
@@ -106,32 +104,26 @@ public:
 
     /**
      * @brief Encode and send a packet of data.
-     * 
-     * Optimized version: Calculates CRC on-the-fly and uses work_buffer to 
-     * avoid any stack allocation of frame buffers.
      */
     template <typename StreamType>
     etl::expected<size_t, ErrorCode> send(StreamType& stream, etl::span<const uint8_t> packet) {
         if (packet.empty()) return 0;
 
-        size_t payloadSize = packet.size();
-        size_t totalUnencodedSize = payloadSize + CRCType::Size;
+        const size_t payloadSize = packet.size();
+        const size_t totalUnencodedSize = payloadSize + CRCType::Size;
         
-        // 1. Check if work_buffer can hold the encoded result
         if (Codec::getEncodedBufferSize(totalUnencodedSize) > _work_buffer.size()) {
-            handleError(ErrorCode::BufferFull);
             return etl::unexpected(ErrorCode::BufferFull);
         }
 
-        // 2. Prepare frame in work_buffer (Zero-Copy CRC)
-        _lock.lock();
-        _crc_engine.reset();
+        // [SIL-2] Use transient buffer to prepare frame.
+        // We use the end of _work_buffer as a scratchpad if the packet is not in _work_buffer.
+        // To be safe and simple, we copy to the beginning of _work_buffer.
         
-        // Copy payload and calculate CRC at the same time
+        _crc_engine.reset();
         for (size_t i = 0; i < payloadSize; ++i) {
             _work_buffer[i] = packet[i];
             _crc_engine.add(packet[i]);
-            if ((i % 64) == 0) _watchdog.feed(); // Feed WDT for long packets
         }
 
         if constexpr (CRCType::Size > 0) {
@@ -141,91 +133,77 @@ public:
             }
         }
 
-        // 3. Encode Frame
         Codec codec;
-        // The encode implementation should handle potential overlaps or 
-        // we use a safe offset for the work_buffer if needed. 
-        // For simplicity, we encode the frame prepared at [0...totalUnencodedSize].
+        // In-place encoding is NOT guaranteed by all codecs. 
+        // We assume Codec::encode is safe or we use a double buffer approach.
+        // For COBS, it is safe if we encode from a separate input. 
+        // Here we use a temp copy or just encode from _work_buffer to _work_buffer
+        // IF the codec supports it. COBS encode is NOT in-place safe in our impl.
+        
+        // FIX: Use a temporary offset for encoding to avoid overlap if needed, 
+        // but COBS encode always expands, so in-place is impossible.
+        // Let's use the second half of _work_buffer.
+        const size_t mid = _work_buffer.size() / 2;
+        if (Codec::getEncodedBufferSize(totalUnencodedSize) > mid || totalUnencodedSize > mid) {
+             return etl::unexpected(ErrorCode::BufferFull);
+        }
+
         auto result = codec.encode(etl::span<const uint8_t>(_work_buffer.data(), totalUnencodedSize), 
-                                   _work_buffer);
+                                   _work_buffer.subspan(mid));
 
         if (result.has_value()) {
             size_t encodedSize = result.value();
             for (size_t i = 0; i < encodedSize; ++i) {
-                stream.write(_work_buffer[i]);
+                stream.write(_work_buffer[mid + i]);
+                if ((i % 32) == 0) _watchdog.feed();
             }
             stream.write(Codec::Marker);
-            _lock.unlock();
             return encodedSize + 1;
         } else {
-            _lock.unlock();
-            handleError(result.error());
             return etl::unexpected(result.error());
         }
     }
 
-    static constexpr size_t STATUS_OVERFLOW = 0;
-
 private:
-    /**
-     * @brief Internal processing of a complete frame.
-     */
-    void processPacket() {
-        _lock.lock();
-        size_t size = _rx_buffer.size();
-        if (size > _work_buffer.size()) {
-            _rx_buffer.clear();
-            _lock.unlock();
-            handleError(ErrorCode::BufferOverflow);
-            return;
-        }
-
-        // Linearize circular to work buffer
-        for (size_t i = 0; i < size; ++i) {
-            _work_buffer[i] = _rx_buffer[i];
-            if ((i % 64) == 0) _watchdog.feed();
-        }
-        _rx_buffer.clear();
-        _lock.unlock();
-
-        // 1. Decode Frame
+    void processFrame(size_t size) {
         Codec codec;
+        // COBS decode is in-place safe in our implementation.
         auto result = codec.decode(etl::span<const uint8_t>(_work_buffer.data(), size), 
                                    _work_buffer);
 
-        if (result.has_value()) {
-            size_t decodedSize = result.value();
-            _watchdog.feed();
-
-            // 2. Validate CRC
-            if constexpr (CRCType::Size > 0) {
-                if (decodedSize < CRCType::Size) {
-                    handleError(ErrorCode::IncompletePacket);
-                    return;
-                }
-                
-                size_t payloadSize = decodedSize - CRCType::Size;
-                _crc_engine.reset();
-                for (size_t i = 0; i < payloadSize; ++i) {
-                    _crc_engine.add(_work_buffer[i]);
-                }
-                
-                uint32_t receivedCrc = 0;
-                for (size_t i = 0; i < CRCType::Size; ++i) {
-                    receivedCrc |= (static_cast<uint32_t>(_work_buffer[payloadSize + i]) << (i * 8));
-                }
-                
-                if (_crc_engine.value() != receivedCrc) {
-                    handleError(ErrorCode::InvalidChecksum);
-                    return;
-                }
-                
-                if (_onPacket) _onPacket(etl::span<const uint8_t>(_work_buffer.data(), payloadSize));
-            } else {
-                if (_onPacket) _onPacket(etl::span<const uint8_t>(_work_buffer.data(), decodedSize));
-            }
-        } else {
+        if (!result.has_value()) {
             handleError(result.error());
+            return;
+        }
+
+        size_t decodedSize = result.value();
+        _watchdog.feed();
+
+        if constexpr (CRCType::Size > 0) {
+            if (decodedSize < CRCType::Size) {
+                handleError(ErrorCode::IncompletePacket);
+                return;
+            }
+            
+            size_t payloadSize = decodedSize - CRCType::Size;
+            _crc_engine.reset();
+            for (size_t i = 0; i < payloadSize; ++i) {
+                _crc_engine.add(_work_buffer[i]);
+            }
+            
+            uint32_t receivedCrc = 0;
+            for (size_t i = 0; i < CRCType::Size; ++i) {
+                receivedCrc |= (static_cast<uint32_t>(_work_buffer[payloadSize + i]) << (i * 8));
+            }
+            
+            if (_crc_engine.value() != receivedCrc) {
+                handleError(ErrorCode::InvalidChecksum);
+                return;
+            }
+            
+            if (_onPacket) _onPacket(etl::span<const uint8_t>(_work_buffer.data(), payloadSize));
+        } else {
+            if (_onPacket) _onPacket(etl::span<const uint8_t>(_work_buffer.data(), decodedSize));
         }
     }
 
@@ -233,16 +211,12 @@ private:
         if (_onError) _onError(error);
     }
 
-    // Shared State (Protected by _lock)
     etl::circular_buffer_ext<uint8_t> _rx_buffer;
     etl::span<uint8_t> _work_buffer;
-    etl::bitset<8> _status;
 
-    // Policies
     LockPolicy _lock;
     WatchdogPolicy _watchdog;
 
-    // Engine Components
     PacketHandler _onPacket;
     ErrorHandler _onError;
     CRCType _crc_engine;
