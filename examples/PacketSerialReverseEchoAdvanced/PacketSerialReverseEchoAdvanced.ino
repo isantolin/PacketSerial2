@@ -1,139 +1,72 @@
-//
-// Copyright (c) 2012 Christopher Baker <https://christopherbaker.net>
-//
-// SPDX-License-Identifier: MIT
-//
+/**
+ * @file PacketSerialReverseEchoAdvanced.ino
+ * @brief Advanced example with Integrity Check (CRC) and Error Handling (v2.0).
+ * 
+ * This example demonstrates:
+ * 1. Data Integrity: Using etl::crc16 for packet validation.
+ * 2. Error Handling: Catching InvalidChecksum or BufferOverflow.
+ * 3. Industrial Robustness: Automatically discarding corrupt packets.
+ */
 
-
+#include <stdint.h>
+#include <etl/array.h>
+#include <etl/crc16.h> // Import CRC16 from ETL
 #include <PacketSerial.h>
-#include <SoftwareSerial.h>
+#include <Codecs/COBS.h>
 
+// Use the library namespace
+using namespace PacketSerial2;
 
-// Instances of this class can recieve data packets when registered.
-class MyClass
-{
-public:
-    void processPacketFromSender(const PacketSerial& sender, const uint8_t* buffer, size_t size)
-    {
-        // Just send the buffer back to the sender.
-        sender.send(buffer, size);
+// 1. ALLOCATE STATIC MEMORY:
+etl::array<uint8_t, 128> rxStorage;
+etl::array<uint8_t, 256> workBuffer;
+
+// 2. INSTANTIATE WITH CRC16:
+// The 4th template parameter enables the CRC engine.
+// All packets sent will have a 2-byte CRC appended.
+// All incoming packets will be validated before being passed to onPacketReceived.
+PacketSerial<COBS, etl::crc16> ps(rxStorage, workBuffer);
+
+/**
+ * @brief Handle valid packets.
+ */
+void onPacketReceived(etl::span<const uint8_t> packet) {
+    // If we are here, the packet is ALREADY validated by CRC.
+    // We just echo it back.
+    ps.send(Serial, packet);
+}
+
+/**
+ * @brief Handle communication errors.
+ * @param error The specific ErrorCode.
+ */
+void onError(ErrorCode error) {
+    switch (error) {
+        case ErrorCode::InvalidChecksum:
+            // This happens when a packet is received but the CRC doesn't match.
+            // PacketSerial automatically discards the packet.
+            Serial.println("Error: Corrupt packet detected (CRC mismatch).");
+            break;
+        case ErrorCode::BufferOverflow:
+            Serial.println("Error: Receive buffer overflow.");
+            break;
+        case ErrorCode::MalformedFrame:
+            Serial.println("Error: malformed COBS frame.");
+            break;
+        default:
+            break;
     }
-};
-
-// By default, PacketSerial automatically wraps the built-in `Serial` object.
-// While it is still possible to use the Serial object directly, it is
-// recommended that the user let the PacketSerial object manage all serial
-// communication. Thus the user should not call Serial.write(), Serial.print(),
-// etc. Additionally the user should not use the serialEvent() framework.
-//
-// By default, PacketSerial uses COBS encoding and has a 256 byte receive
-// buffer. This can be adjusted by the user by replacing `PacketSerial` with
-// a variation of the `PacketSerial_<COBS, 0, BufferSize>` template found in
-// PacketSerial.h.
-PacketSerial myPacketSerial;
-
-
-// Note that SoftwareSerial is not compatible with SAMD_ZERO
-
-// An additional PacketSerial instance.
-SoftwareSerial mySoftwareSerial(10, 11);
-PacketSerial myOtherPacketSerial;
-
-// An instance of our custom class.
-MyClass myClassInstance;
-
-void setup()
-{
-  // We begin communication with our PacketSerial object by setting the
-  // communication speed in bits / second (baud).
-  myPacketSerial.begin(115200);
-
-  // If we want to receive packets, we must specify a packet handler function.
-  // The packet handler is a custom function with a signature like the
-  // onPacketReceived function below.
-  myPacketSerial.setPacketHandler(&onPacketReceived);
-
-  // Set up a scond custom Serial connection on Serial1.
-  mySoftwareSerial.begin(9600);
-  myOtherPacketSerial.setStream(&mySoftwareSerial);
-
-  // Here we set the packet handler to be a member of the given instance of
-  // MyClass using a lambda function. Static variables (e.g. myClassInstance)
-  // don't need to be captured. Additionally the member function of MyClass
-  // that processes the packet isn't required to match the packet handler
-  // function signature.
-  myOtherPacketSerial.setPacketHandler([](const uint8_t* buffer, size_t size) {
-       myClassInstance.processPacketFromSender(myOtherPacketSerial, buffer, size);
-  });
 }
 
+void setup() {
+    Serial.begin(115200);
 
-void loop()
-{
-  // Do your program-specific loop() work here as usual.
-
-  // The PacketSerial::update() method attempts to read in any incoming serial
-  // data and emits received and decoded packets via the packet handler
-  // function specified by the user in the void setup() function.
-  //
-  // The PacketSerial::update() method should be called once per loop(). Failure
-  // to call the PacketSerial::update() frequently enough may result in buffer
-  // serial overflows.
-  myPacketSerial.update();
-
-  // Check for a receive buffer overflow (optional).
-  if (myPacketSerial.overflow())
-  {
-    // Send an alert via a pin (e.g. make an overflow LED) or return a
-    // user-defined packet to the sender.
-    //
-    // Ultimately you may need to just increase your recieve buffer via the
-    // template parameters (see the README.md).
-  }
+    // Register both packet and error handlers.
+    ps.setPacketHandler(etl::make_delegate(onPacketReceived));
+    ps.setErrorHandler(etl::make_delegate(onError));
 }
 
-// This is our handler callback function.
-// When an encoded packet is received and decoded, it will be delivered here.
-// The sender is a pointer to the sending PacketSerial instance. The `buffer` is
-// a pointer to the decoded byte array. `size` is the number of bytes in the
-// `buffer`.
-void onPacketReceived(const void* sender, const uint8_t* buffer, size_t size)
-{
-  if (sender == &myPacketSerial)
-  {
-    // In this example, we will simply reverse the contents of the array and send
-    // it back to the sender.
-    // Make a temporary buffer.
-    uint8_t tempBuffer[size];
-
-    // Copy the packet into our temporary buffer.
-    memcpy(tempBuffer, buffer, size);
-
-    // Reverse our temporaray buffer.
-    reverse(tempBuffer, size);
-
-    // Send the reversed buffer back to the sender. The send() method will encode
-    // the whole buffer as as single packet, set packet markers, etc.
-    // The `tempBuffer` is a pointer to the `tempBuffer` array and `size` is the
-    // number of bytes to send in the `tempBuffer`.
-    myPacketSerial.send(tempBuffer, size);
-  }
-  else if (sender == &myOtherPacketSerial)
-  {
-    // Just send it back without reversing it.
-    myOtherPacketSerial.send(buffer, size);
-  }
-}
-
-// This function takes a byte buffer and reverses it.
-void reverse(uint8_t* buffer, size_t size)
-{
-  uint8_t tmp;
-
-  for (size_t i = 0; i < size / 2; i++)
-  {
-    tmp = buffer[i];
-    buffer[i] = buffer[size - i - 1];
-    buffer[size - i - 1] = tmp;
-  }
+void loop() {
+    // Keep the engine running.
+    ps.update(Serial);
 }

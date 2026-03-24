@@ -1,5 +1,5 @@
 PROJECT_NAME           = PacketSerial
-PROJECT_BRIEF          = "An Arduino Library that facilitates packet-based serial communication using COBS or SLIP encoding."
+PROJECT_BRIEF          = "Modern, Industrial-Grade Packet-Serial Communication for Arduino (Zero-Heap, ETL-based)."
 INPUT                  = ../src \
                          .
 FILE_PATTERNS          = *.c \

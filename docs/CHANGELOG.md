@@ -5,27 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/)
 and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [2.0.0] 2026-03-24
 
 ### Added
-
-- None
+- Complete rewrite for Modern C++17 and Industrial Standards.
+- **Zero-Heap / Zero-STL** architecture.
+- **Deterministic Memory**: Buffers must be provided by the user via `etl::span` or `etl::array`.
+- **ETL Integration**: Full support for Embedded Template Library.
+- **Integrated CRC**: Optional CRC8/16/32 validation support using templates.
+- **Advanced Error Handling**: Typed `ErrorCode` via `etl::expected` and error delegates.
+- **ICodec Interface**: CRTP-based zero-cost abstraction for custom codecs.
 
 ### Changed
-
-- None
+- **Breaking Change**: `PacketSerial` now requires memory injection in the constructor.
+- **Breaking Change**: Callbacks now use `etl::delegate` instead of raw function pointers.
+- **Breaking Change**: Replaced `PacketHandlerFunction` with `etl::delegate<void(etl::span<const uint8_t>)>`.
+- **Namespace**: All core logic moved to `PacketSerial2` namespace.
 
 ### Removed
-
-- None
-
-### Fixed
-
-- None
-
-### Security
-
-- None
+- Removed old `PacketSerial_` template and `Encoding/` directory.
+- Removed dynamic buffer allocation and virtual functions.
 
 ## [1.4.0] 2019-07-26
 

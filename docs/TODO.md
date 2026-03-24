@@ -1,7 +1,21 @@
 # TODO
 
-First check out the [Help Wanted](../../../issues?q=is%3Aissue+is%3Aopen+label%3A%22help+wanted%22) tag in the issues section for specific ideas.
+## Version 2.x Goals
 
-## Future Plans
+- [ ] **Unit Tests**: Implement a comprehensive test suite using GTest or Catch2 that can run on Linux/Windows.
+- [ ] **Mock Streams**: Provide a standard MockStream class for easy testing of protocol logic.
+- [ ] **More Codecs**:
+    - [ ] **COBS/R**: Support for Reduced overhead COBS.
+    - [ ] **Consistent-Framing**: Implementation of more framing standards.
+- [ ] **In-Place Encoding**: Investigate if COBS can be encoded in-place safely without doubling buffer size.
+- [ ] **Auto-Discovery**: Support for hardware-specific optimizations using `if constexpr`.
+- [ ] **DMA Support**: Hooks for non-blocking DMA-based Stream operations on ARM/ESP32.
 
-Right now the encoder / decoder works by encoding or decoding a full buffer. SLIP (and COBS?) encoding, for instance, can be encoded / decoded on the fly, allowing for a smaller buffer allocation. https://github.com/CNMAT/OSC uses an "on-the-fly" approach, rather than a large buffer approach. It would be interesting to investigate this.
+## Done
+
+- [x] **Zero-Heap Implementation**: Complete rewrite without dynamic memory.
+- [x] **ETL Integration**: Full support for Embedded Template Library.
+- [x] **C++17 Migration**: Usage of `if constexpr`, `string_view`, `span`, and `expected`.
+- [x] **Integrated CRC**: Native support for 8/16/32-bit CRC.
+- [x] **CRTP Abstraction**: Zero-cost abstraction for custom codecs.
+- [x] **Deterministic Memory**: User-provided buffers via injected spans.

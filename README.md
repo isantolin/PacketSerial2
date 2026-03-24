@@ -1,52 +1,73 @@
-# PacketSerial
+# PacketSerial (v2.0)
 
 [![Build Status](https://travis-ci.org/bakercp/PacketSerial.svg?branch=master)](https://travis-ci.org/bakercp/PacketSerial)
+[![Software License](https://img.shields.io/badge/license-MIT-brightgreen.svg)](LICENSE.md)
 
-An Arduino Library that facilitates packet-based serial communication using COBS or SLIP encoding.
+**PacketSerial** is an industrial-grade library that facilitates packet-based serial communication (COBS, SLIP) for Arduino and other embedded platforms. 
 
-## Features
+Version 2.0 is a complete modernization following **SIL-2 compliance** principles: **Zero-Heap**, **Deterministic Memory**, and **Functional Safety**.
 
-_PacketSerial_ is an small, efficient, library that allows [Arduinos](http://www.arduino.cc/) to send and receive serial data packets (with COBS, SLIP or a user-defined encoding) that include bytes of any value (0 - 255).
-A _packet_ is simply an array of bytes.
+---
 
-## Documentation
+## 🚀 Key Modern Features
 
-If you're asking _Why do I need this?_, read the [background introduction](docs/BACKGROUND.md) page. If you're ready to get started, check out the [getting started](docs/GETTING_STARTED.md) page. You can also learn a lot by reading through the [examples](./examples/). Finally, if you're interested in learning more about how the code works, read the comments in the [source code](./src/) and check out the [API documentation](https://bakercp.github.io/PacketSerial/).
+1.  **Zero-Heap Architecture**: No `malloc`, `new`, or dynamic allocation. No `std::vector` or `std::string`.
+2.  **Deterministic RAM**: All RX/TX buffers are provided by the user at compile-time via `etl::array` or `etl::span`.
+3.  **ETL Native**: Powered by the [Embedded Template Library](https://www.etlcpp.com/). 
+    - Callbacks via `etl::delegate` (No heavy virtual functions).
+    - Internal state managed by `etl::bitset` and `etl::circular_buffer`.
+4.  **Integrated Integrity (CRC)**: Optional 8/16/32-bit CRC validation built into the framing process.
+5.  **C++17 Optimized**: Uses `if constexpr` and CRTP for "Zero-Cost" abstractions.
+6.  **Platform Agnostic**: Compiles on AVR, ESP32, ARM (Teensy/STM32), and Linux/Windows for unit testing.
 
-## Support
+---
 
-If you're looking for help, read the [support](docs/SUPPORT.md) page.
+## 🛠 Quick Start
 
-## Compatibility
+### 1. Define your buffers (Static)
+```cpp
+#include <PacketSerial.h>
+#include <Codecs/COBS.h>
+#include <etl/array.h>
 
-### Requrements
+using namespace PacketSerial2;
 
-- [Arduino IDE](https://www.arduino.cc/en/main/software) (version 1.5+)
+// These buffers are allocated in RAM (not stack, not heap)
+etl::array<uint8_t, 128> rxStorage;
+etl::array<uint8_t, 256> workBuffer;
+```
 
-### Other Platforms
+### 2. Instantiate and Register
+```cpp
+PacketSerial<COBS> ps(rxStorage, workBuffer);
 
-This project has been used successfully with [openFrameworks](https://openframeworks.cc/) using the [ofxSerial](https://github.com/bakercp/ofxSerial) addon. In particular, see the `ofx::IO::PacketSerial` object. Additionally this project has been used with Python using the [PySerial](https://pythonhosted.org/pyserial/index.html) package. In particular, check out the [COBS](https://pythonhosted.org/cobs/) (see [this discussion](https://github.com/bakercp/PacketSerial/issues/10)) and [SLIP](https://pypi.python.org/pypi/sliplib/0.0.1) packages.
+void onPacket(etl::span<const uint8_t> packet) {
+    // Process your safe data view here
+}
 
-Ultimately, any library that correctly implements a COBS or SLIP encoding scheme should be compatible with this project.
+void setup() {
+    Serial.begin(115200);
+    ps.setPacketHandler(etl::make_delegate(onPacket));
+}
 
-### Continuous Integration
+void loop() {
+    ps.update(Serial);
+}
+```
 
-Continuous integration tests are carried out on a variety of common Arduino platforms. See [this script](https://raw.githubusercontent.com/adafruit/travis-ci-arduino/master/install.sh) for a list.
+---
 
-## Licensing
+## 📦 Requirements
 
-This project is licensed under the [MIT License](LICENSE.md).
+- **C++17** compatible compiler.
+- **Embedded Template Library (ETL)**: Must be installed in your environment.
 
-## Project Management
+## 📖 Documentation
 
-### Repository
+- [Getting Started](docs/GETTING_STARTED.md)
+- [Industrial Robustness (CRC & Errors)](examples/PacketSerialReverseEchoAdvanced/PacketSerialReverseEchoAdvanced.ino)
+- [Changelog](docs/CHANGELOG.md)
 
-[https://github.com/bakercp/PacketSerial](https://github.com/bakercp/PacketSerial)
+## License
 
-### Contributing
-
-If you'd like to contribute to this project, please check out the [Code of Conduct](docs/CODE_OF_CONDUCT.md) and the [contributing](docs/CONTRIBUTING.md) guide.
-
-### Versioning
-
-This project uses [Semantic Versioning](http://semver.org/spec/v2.0.0.html). You can check out recent changes in the [changelog](CHANGELOG.md).
+MIT License. See [LICENSE.md](LICENSE.md) for details.

@@ -14,6 +14,16 @@ Check out the [Help Wanted](../../../issues?q=is%3Aissue+is%3Aopen+label%3A%22he
 
 Pull Requests are always welcome, so if you make any improvements please feel free to float them back upstream :)
 
+### ⚖️ Design Principles (v2.0+)
+
+All contributions to the core of PacketSerial MUST strictly follow these rules:
+
+1.  **Zero-Heap**: No `malloc`, `free`, `new`, or `delete`. No usage of standard library components that require a heap (like `std::vector` or `std::string`).
+2.  **No STL**: All containers, delegates, and utilities must come from the **ETL (Embedded Template Library)**.
+3.  **Deterministic RAM**: No large buffers should be allocated on the stack. Memory for internal operations must be provided by the user via `etl::span` or `etl::array`.
+4.  **Zero-Cost Abstractions**: Use Templates and **CRTP** (Curiously Recurring Template Pattern) instead of virtual functions to save Flash and RAM.
+5.  **C++17 Freestanding**: The library must be compatible with C++17 and should not rely on a full operating system runtime.
+
 1. Fork this repository.
 2. Create your feature branch (`git checkout -b my-new-feature`).
 3. Commit your changes (`git commit -am 'Add some feature'`).
