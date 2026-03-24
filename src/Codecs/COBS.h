@@ -3,8 +3,8 @@
 #include "../ICodec.h"
 #include <etl/expected.h>
 #include <etl/span.h>
-#include <cstdint>
-#include <cstddef>
+#include <stdint.h>
+#include <stddef.h>
 
 namespace PacketSerial2 {
 

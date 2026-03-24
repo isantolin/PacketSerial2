@@ -2,7 +2,7 @@
 
 #include <etl/expected.h>
 #include <etl/span.h>
-#include <cstddef>
+#include <stddef.h>
 #include "ErrorCode.h"
 
 namespace PacketSerial2 {
