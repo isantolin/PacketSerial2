@@ -1,24 +1,44 @@
-# PacketSerial (v2.0)
+# PacketSerial (v2.1)
 
 [![Build Status](https://travis-ci.org/bakercp/PacketSerial.svg?branch=master)](https://travis-ci.org/bakercp/PacketSerial)
 [![Software License](https://img.shields.io/badge/license-MIT-brightgreen.svg)](LICENSE.md)
 
 **PacketSerial** is an industrial-grade library that facilitates packet-based serial communication (COBS, SLIP) for Arduino and other embedded platforms. 
 
-Version 2.0 is a complete modernization following **SIL-2 compliance** principles: **Zero-Heap**, **Deterministic Memory**, and **Functional Safety**.
+Version 2.0+ is a complete modernization following **SIL-2 compliance** principles: **Zero-Heap**, **Deterministic Memory**, and **Functional Safety**.
 
 ---
 
-## 🚀 Key Modern Features
+## ⚖️ Premisas de Modernización (v2.0+)
 
-1.  **Zero-Heap Architecture**: No `malloc`, `new`, or dynamic allocation. No `std::vector` or `std::string`.
-2.  **Deterministic RAM**: All RX/TX buffers are provided by the user at compile-time via `etl::array` or `etl::span`.
-3.  **ETL Native**: Powered by the [Embedded Template Library](https://www.etlcpp.com/). 
-    - Callbacks via `etl::delegate` (No heavy virtual functions).
-    - Internal state managed by `etl::bitset` and `etl::circular_buffer`.
-4.  **Integrated Integrity (CRC)**: Optional 8/16/32-bit CRC validation built into the framing process.
-5.  **C++17 Optimized**: Uses `if constexpr` and CRTP for "Zero-Cost" abstractions.
-6.  **Platform Agnostic**: Compiles on AVR, ESP32, ARM (Teensy/STM32), and Linux/Windows for unit testing.
+Esta biblioteca ha sido rediseñada desde cero siguiendo principios de ingeniería para sistemas críticos y de grado industrial:
+
+### 1. Gestión de Memoria Determinista (Zero-Heap / No STL)
+*   **Prohibición de Asignación Dinámica**: No se utiliza `malloc`, `free`, `new`, `delete` ni contenedores de la STL (`std::vector`, `std::string`).
+*   **Buffers Estáticos**: Toda la memoria para RX/TX debe ser provista por el usuario mediante `etl::span` o `etl::array`, garantizando un uso de RAM conocido en tiempo de compilación.
+
+### 2. Integración Nativa con ETL (Embedded Template Library)
+*   **Callbacks mediante `etl::delegate`**: Sustitución de punteros a funciones por delegados para permitir callbacks a métodos de clase sin el overhead de punteros virtuales.
+*   **Estructuras de Datos ETL**: Uso interno de `etl::circular_buffer` y `etl::bitset` para la gestión de la FSM (Finite State Machine).
+*   **Manejo de Errores con `etl::expected`**: Gestión de errores tipada y sin excepciones.
+
+### 3. Estándar C++17 "Zero-Cost Abstractions"
+*   **Polimorfismo en Tiempo de Compilación**: Uso de Templates y **CRTP** (Curiously Recurring Template Pattern) en lugar de funciones virtuales, eliminando el VTable.
+*   **Uso de `if constexpr`**: Rutas de código optimizadas según capacidades del hardware sin penalización en tiempo de ejecución.
+*   **Zero-Copy**: Uso extensivo de `etl::span` para evitar copias innecesarias de datos.
+
+### 4. Framing de Grado Industrial y Robustez
+*   **COBS de Primera Clase**: Implementación optimizada con soporte para decodificación In-Place.
+*   **Integridad (CRC)**: Capa opcional de validación CRC (8/16/32) integrada en el proceso de framing.
+*   **Resiliencia**: Re-sincronización automática tras detectar delimitadores, con reporte de errores por desbordamiento o tramas malformadas.
+
+### 5. Abstracción de Hardware y Testabilidad
+*   **Platform Agnostic**: La lógica core es independiente de `Arduino.h`, permitiendo pruebas unitarias en Linux/Windows.
+*   **Interfaz Genérica**: Compatible con `Stream` de Arduino pero permitiendo inyectar Mocks para testing.
+
+### 6. Seguridad Funcional (SIL-2 Compliant)
+*   **Hardware Watchdog Heartbeat**: Hooks opcionales para alimentar el WDT durante procesos largos.
+*   **Protección contra ISR**: Acceso seguro a buffers compartidos mediante secciones atómicas configurables (Lock Policies).
 
 ---
 
@@ -39,7 +59,8 @@ etl::array<uint8_t, 256> workBuffer;
 
 ### 2. Instantiate and Register
 ```cpp
-PacketSerial<COBS> ps(rxStorage, workBuffer);
+// v2.1: Support for ArduinoAtomicLock for ISR safety
+PacketSerial<COBS, NoCRC, ArduinoAtomicLock> ps(rxStorage, workBuffer);
 
 void onPacket(etl::span<const uint8_t> packet) {
     // Process your safe data view here
