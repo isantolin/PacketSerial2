@@ -11,10 +11,6 @@ namespace Mocks {
 
 /**
  * @brief Platform-agnostic Mock Stream for unit testing.
- * 
- * This class fulfills the "Hardware Abstraction" premise at 100%, 
- * allowing developers to test protocol logic on PC (Linux/Windows) 
- * without Arduino hardware.
  */
 template <size_t Capacity>
 class MockStream {
@@ -32,13 +28,11 @@ public:
      * @brief Mimics Arduino's Stream::write for bulk data.
      */
     size_t write(const uint8_t* buffer, size_t size) {
-        size_t written = 0;
-        etl::for_each(buffer, buffer + size, [this, &written](uint8_t byte) {
-            if (this->write(byte) != 0) {
-                written++;
-            }
+        size_t initial_size = _tx_buffer.size();
+        etl::for_each(buffer, buffer + size, [this](uint8_t byte) {
+            this->write(byte);
         });
-        return written;
+        return _tx_buffer.size() - initial_size;
     }
 
     /**
@@ -58,17 +52,14 @@ public:
         return static_cast<int>(_rx_buffer.size());
     }
 
-    // --- Test Injection Methods ---
-
     /**
      * @brief Inject raw data to simulate incoming bytes from hardware.
      */
     void injectIncomingData(etl::span<const uint8_t> data) {
-        const size_t space = _rx_buffer.max_size() - _rx_buffer.size();
-        const size_t count = (data.size() < space) ? data.size() : space;
-        
-        etl::for_each(data.begin(), data.begin() + count, [this](uint8_t b) {
-            _rx_buffer.push_back(b);
+        etl::for_each(data.begin(), data.end(), [this](uint8_t b) {
+            if (!this->_rx_buffer.full()) {
+                this->_rx_buffer.push_back(b);
+            }
         });
     }
 

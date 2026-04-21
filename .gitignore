@@ -21,3 +21,7 @@ example/obj
 # Win
 *.exe
 *.dll
+tests/TestSuite
+# Local dependencies
+tests/etl_local/
+

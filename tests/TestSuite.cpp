@@ -70,31 +70,37 @@ bool test_slip_roundtrip() {
 
 // --- PacketSerial Tests ---
 
+static bool basic_packet_received = false;
+static size_t basic_received_size = 0;
+
+void onBasicPacket(etl::span<const uint8_t> packet) {
+    basic_packet_received = true;
+    basic_received_size = packet.size();
+}
+
 bool test_packet_serial_basic() {
     etl::array<uint8_t, 64> rx_storage;
     etl::array<uint8_t, 128> work_buffer;
     PacketSerial<COBS> ps(rx_storage, work_buffer);
     MockStream<256> stream;
 
-    bool packet_received = false;
-    size_t received_size = 0;
-
-    auto lambda = [&](etl::span<const uint8_t> packet) {
-        packet_received = true;
-        received_size = packet.size();
-    };
-    ps.setPacketHandler(PacketSerial<COBS>::PacketHandler::create(lambda));
+    basic_packet_received = false;
+    basic_received_size = 0;
+    ps.setPacketHandler(etl::make_delegate<onBasicPacket>());
 
     uint8_t payload[] = { 0xAA, 0xBB, 0xCC };
     ps.send(stream, etl::span<const uint8_t>(payload, sizeof(payload)));
 
-    // MockStream now contains the encoded packet.
-    // Inject it back to simulate reception.
     stream.injectIncomingData(etl::span<const uint8_t>(stream.getTransmittedData().data(), stream.getTransmittedData().size()));
     
     ps.update(stream);
 
-    return packet_received && received_size == sizeof(payload);
+    return basic_packet_received && basic_received_size == sizeof(payload);
+}
+
+static bool crc_packet_received = false;
+void onCrcPacket(etl::span<const uint8_t>) {
+    crc_packet_received = true;
 }
 
 bool test_packet_serial_crc() {
@@ -103,21 +109,17 @@ bool test_packet_serial_crc() {
     PacketSerial<COBS, etl::crc16> ps(rx_storage, work_buffer);
     MockStream<256> stream;
 
-    bool packet_received = false;
-    auto lambda = [&](etl::span<const uint8_t>) {
-        packet_received = true;
-    };
-    ps.setPacketHandler(PacketSerial<COBS, etl::crc16>::PacketHandler::create(lambda));
+    crc_packet_received = false;
+    ps.setPacketHandler(etl::make_delegate<onCrcPacket>());
 
     uint8_t payload[] = { 0x01, 0x02, 0x03, 0x04 };
     ps.send(stream, etl::span<const uint8_t>(payload, sizeof(payload)));
 
-    // Inject back
     stream.injectIncomingData(etl::span<const uint8_t>(stream.getTransmittedData().data(), stream.getTransmittedData().size()));
     
     ps.update(stream);
 
-    return packet_received;
+    return crc_packet_received;
 }
 
 // --- Main Runner ---
