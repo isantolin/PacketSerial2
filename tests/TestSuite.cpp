@@ -5,6 +5,7 @@
 #include <etl/span.h>
 #include <etl/algorithm.h>
 #include <etl/crc16.h>
+#include <etl/crc32.h>
 
 #include "../src/PacketSerial.h"
 #include "../src/Codecs/COBS.h"
@@ -28,111 +29,153 @@ void print_result(const TestResult& result) {
               << ": " << (result.success ? "PASSED" : "FAILED") << std::endl;
 }
 
-// --- COBS Tests ---
+// --- Global Flags for Callbacks ---
+static bool packet_received = false;
+static size_t last_packet_size = 0;
+static ErrorCode last_error = ErrorCode::None;
+
+void reset_flags() {
+    packet_received = false;
+    last_packet_size = 0;
+    last_error = ErrorCode::None;
+}
+
+void onPacket(etl::span<const uint8_t> packet) {
+    packet_received = true;
+    last_packet_size = packet.size();
+}
+
+void onError(ErrorCode error) {
+    last_error = error;
+}
+
+// --- Codec Roundtrip Tests (Low Level) ---
 
 bool test_cobs_roundtrip() {
     COBS codec;
-    uint8_t raw_data[] = { 0x01, 0x02, 0x00, 0x03, 0x00, 0x04 };
-    etl::array<uint8_t, sizeof(raw_data)> input;
-    etl::copy(raw_data, raw_data + sizeof(raw_data), input.begin());
-    
-    etl::array<uint8_t, 16> encoded;
-    etl::array<uint8_t, 16> decoded;
+    uint8_t raw[] = { 0x01, 0x00, 0x02, 0x00, 0x03 };
+    etl::array<uint8_t, 5> input;
+    etl::copy(raw, raw + 5, input.begin());
+    etl::array<uint8_t, 16> enc, dec;
 
-    auto enc_res = codec.encode(input, encoded);
-    if (!enc_res.has_value()) return false;
+    auto res_e = codec.encode(input, enc);
+    if (!res_e.has_value()) return false;
 
-    auto dec_res = codec.decode(etl::span<const uint8_t>(encoded.data(), enc_res.value()), decoded);
-    if (!dec_res.has_value() || dec_res.value() != input.size()) return false;
-
-    return etl::equal(input.begin(), input.end(), decoded.begin());
+    auto res_d = codec.decode(etl::span<const uint8_t>(enc.data(), res_e.value()), dec);
+    return res_d.has_value() && res_d.value() == 5 && etl::equal(input.begin(), input.end(), dec.begin());
 }
-
-// --- SLIP Tests ---
 
 bool test_slip_roundtrip() {
     SLIP codec;
-    uint8_t raw_data[] = { 0x01, 0xC0, 0xDB, 0x02 };
-    etl::array<uint8_t, sizeof(raw_data)> input;
-    etl::copy(raw_data, raw_data + sizeof(raw_data), input.begin());
+    uint8_t raw[] = { 0x01, 0xC0, 0xDB, 0x02 };
+    etl::array<uint8_t, 4> input;
+    etl::copy(raw, raw + 4, input.begin());
+    etl::array<uint8_t, 16> enc, dec;
 
-    etl::array<uint8_t, 16> encoded;
-    etl::array<uint8_t, 16> decoded;
+    auto res_e = codec.encode(input, enc);
+    if (!res_e.has_value()) return false;
 
-    auto enc_res = codec.encode(input, encoded);
-    if (!enc_res.has_value()) return false;
-
-    auto dec_res = codec.decode(etl::span<const uint8_t>(encoded.data(), enc_res.value()), decoded);
-    if (!dec_res.has_value() || dec_res.value() != input.size()) return false;
-
-    return etl::equal(input.begin(), input.end(), decoded.begin());
+    auto res_d = codec.decode(etl::span<const uint8_t>(enc.data(), res_e.value()), dec);
+    return res_d.has_value() && res_d.value() == 4 && etl::equal(input.begin(), input.end(), dec.begin());
 }
 
-// --- PacketSerial Tests ---
+// --- High Level Integration Tests ---
 
-static bool basic_packet_received = false;
-static size_t basic_received_size = 0;
-
-void onBasicPacket(etl::span<const uint8_t> packet) {
-    basic_packet_received = true;
-    basic_received_size = packet.size();
-}
-
-bool test_packet_serial_basic() {
-    etl::array<uint8_t, 64> rx_storage;
-    etl::array<uint8_t, 128> work_buffer;
-    PacketSerial<COBS> ps(rx_storage, work_buffer);
+bool test_ps_cobs_no_crc() {
+    etl::array<uint8_t, 64> rx; etl::array<uint8_t, 128> work;
+    PacketSerial<COBS, NoCRC> ps(rx, work);
     MockStream<256> stream;
+    reset_flags();
+    ps.setPacketHandler(etl::make_delegate<onPacket>());
 
-    basic_packet_received = false;
-    basic_received_size = 0;
-    ps.setPacketHandler(etl::make_delegate<onBasicPacket>());
-
-    uint8_t payload[] = { 0xAA, 0xBB, 0xCC };
-    ps.send(stream, etl::span<const uint8_t>(payload, sizeof(payload)));
-
+    uint8_t data[] = { 1, 2, 3 };
+    ps.send(stream, etl::span<const uint8_t>(data, 3));
     stream.injectIncomingData(etl::span<const uint8_t>(stream.getTransmittedData().data(), stream.getTransmittedData().size()));
-    
     ps.update(stream);
 
-    return basic_packet_received && basic_received_size == sizeof(payload);
+    return packet_received && last_packet_size == 3;
 }
 
-static bool crc_packet_received = false;
-void onCrcPacket(etl::span<const uint8_t>) {
-    crc_packet_received = true;
-}
-
-bool test_packet_serial_crc() {
-    etl::array<uint8_t, 64> rx_storage;
-    etl::array<uint8_t, 128> work_buffer;
-    PacketSerial<COBS, etl::crc16> ps(rx_storage, work_buffer);
+bool test_ps_cobs_crc32() {
+    etl::array<uint8_t, 64> rx; etl::array<uint8_t, 128> work;
+    PacketSerial<COBS, etl::crc32> ps(rx, work);
     MockStream<256> stream;
+    reset_flags();
+    ps.setPacketHandler(etl::make_delegate<onPacket>());
 
-    crc_packet_received = false;
-    ps.setPacketHandler(etl::make_delegate<onCrcPacket>());
-
-    uint8_t payload[] = { 0x01, 0x02, 0x03, 0x04 };
-    ps.send(stream, etl::span<const uint8_t>(payload, sizeof(payload)));
-
+    uint8_t data[] = { 0xAA, 0xBB, 0xCC, 0xDD };
+    ps.send(stream, etl::span<const uint8_t>(data, 4));
     stream.injectIncomingData(etl::span<const uint8_t>(stream.getTransmittedData().data(), stream.getTransmittedData().size()));
-    
     ps.update(stream);
 
-    return crc_packet_received;
+    return packet_received && last_packet_size == 4;
+}
+
+bool test_ps_slip_no_crc() {
+    etl::array<uint8_t, 64> rx; etl::array<uint8_t, 128> work;
+    PacketSerial<SLIP, NoCRC> ps(rx, work);
+    MockStream<256> stream;
+    reset_flags();
+    ps.setPacketHandler(etl::make_delegate<onPacket>());
+
+    uint8_t data[] = { 0xC0, 0x01, 0xDB };
+    ps.send(stream, etl::span<const uint8_t>(data, 3));
+    stream.injectIncomingData(etl::span<const uint8_t>(stream.getTransmittedData().data(), stream.getTransmittedData().size()));
+    ps.update(stream);
+
+    return packet_received && last_packet_size == 3;
+}
+
+bool test_ps_slip_crc16() {
+    etl::array<uint8_t, 64> rx; etl::array<uint8_t, 128> work;
+    PacketSerial<SLIP, etl::crc16> ps(rx, work);
+    MockStream<256> stream;
+    reset_flags();
+    ps.setPacketHandler(etl::make_delegate<onPacket>());
+
+    uint8_t data[] = { 10, 20, 30 };
+    ps.send(stream, etl::span<const uint8_t>(data, 3));
+    stream.injectIncomingData(etl::span<const uint8_t>(stream.getTransmittedData().data(), stream.getTransmittedData().size()));
+    ps.update(stream);
+
+    return packet_received && last_packet_size == 3;
+}
+
+bool test_ps_invalid_crc() {
+    etl::array<uint8_t, 64> rx; etl::array<uint8_t, 128> work;
+    PacketSerial<COBS, etl::crc16> ps(rx, work);
+    MockStream<256> stream;
+    reset_flags();
+    ps.setPacketHandler(etl::make_delegate<onPacket>());
+    ps.setErrorHandler(etl::make_delegate<onError>());
+
+    uint8_t data[] = { 1, 2, 3, 4 };
+    ps.send(stream, etl::span<const uint8_t>(data, 4));
+
+    // Corrupt one byte of the transmitted data (the CRC part or payload)
+    auto& tx = const_cast<etl::vector<uint8_t, 256>&>(stream.getTransmittedData());
+    tx[2] ^= 0xFF; 
+
+    stream.injectIncomingData(etl::span<const uint8_t>(tx.data(), tx.size()));
+    ps.update(stream);
+
+    return !packet_received && last_error == ErrorCode::InvalidChecksum;
 }
 
 // --- Main Runner ---
 
 int main() {
-    std::cout << "PacketSerial2 Unit Test Suite" << std::endl;
-    std::cout << "=============================" << std::endl;
+    std::cout << "PacketSerial2 Extended Test Suite" << std::endl;
+    std::cout << "=================================" << std::endl;
 
-    etl::array<TestResult, 4> results = {{
+    etl::array<TestResult, 7> results = {{
         RUN_TEST(test_cobs_roundtrip),
         RUN_TEST(test_slip_roundtrip),
-        RUN_TEST(test_packet_serial_basic),
-        RUN_TEST(test_packet_serial_crc)
+        RUN_TEST(test_ps_cobs_no_crc),
+        RUN_TEST(test_ps_cobs_crc32),
+        RUN_TEST(test_ps_slip_no_crc),
+        RUN_TEST(test_ps_slip_crc16),
+        RUN_TEST(test_ps_invalid_crc)
     }};
 
     bool all_passed = true;
@@ -141,7 +184,7 @@ int main() {
         if (!r.success) all_passed = false;
     });
 
-    std::cout << "=============================" << std::endl;
+    std::cout << "=================================" << std::endl;
     if (all_passed) {
         std::cout << "ALL TESTS PASSED" << std::endl;
     } else {
