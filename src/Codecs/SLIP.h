@@ -20,6 +20,8 @@ public:
         ESC_ESC = 221
     };
 
+    static constexpr uint8_t Marker = END;
+
     /**
      * @brief Encode a byte buffer with SLIP.
      */
