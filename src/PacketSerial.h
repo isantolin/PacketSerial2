@@ -166,7 +166,7 @@ private:
         // As long as we have data, we process it. Since we can't use while,
         // we use a recursive-like for_each on a proxy if needed, but for simplicity
         // and performance, we'll use for_each on the span with internal state.
-        etl::for_each(data.begin(), data.end(), [this, &stream, &offset, total, &data](const uint8_t& byte) {
+        etl::for_each(data.begin(), data.end(), [this, &stream, &offset, total, &data](const uint8_t& /*byte*/) {
             if ((offset % 32) == 0) {
                 size_t chunk = (total - offset > 32) ? 32 : (total - offset);
                 stream.write(data.data() + offset, chunk);
