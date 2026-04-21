@@ -2,7 +2,7 @@
 
 # --- Configuration ---
 # Path to ETL include directory. Update if ETL is not in your system include path.
-ETL_PATH = /usr/local/include
+ETL_PATH = etl_local/include
 
 CXX = g++
 CXXFLAGS = -std=c++17 -Wall -Wextra -I$(ETL_PATH) -I../src

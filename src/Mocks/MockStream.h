@@ -29,6 +29,18 @@ public:
     }
 
     /**
+     * @brief Mimics Arduino's Stream::write for bulk data.
+     */
+    size_t write(const uint8_t* buffer, size_t size) {
+        size_t written = 0;
+        for (size_t i = 0; i < size; ++i) {
+            if (write(buffer[i]) == 0) break;
+            written++;
+        }
+        return written;
+    }
+
+    /**
      * @brief Mimics Arduino's Stream::read.
      */
     int read() {

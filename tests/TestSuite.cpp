@@ -79,11 +79,11 @@ bool test_packet_serial_basic() {
     bool packet_received = false;
     size_t received_size = 0;
 
-    auto handler = etl::make_delegate([&](etl::span<const uint8_t> packet) {
+    auto lambda = [&](etl::span<const uint8_t> packet) {
         packet_received = true;
         received_size = packet.size();
-    });
-    ps.setPacketHandler(handler);
+    };
+    ps.setPacketHandler(PacketSerial<COBS>::PacketHandler::create(lambda));
 
     uint8_t payload[] = { 0xAA, 0xBB, 0xCC };
     ps.send(stream, etl::span<const uint8_t>(payload, sizeof(payload)));
@@ -104,10 +104,10 @@ bool test_packet_serial_crc() {
     MockStream<256> stream;
 
     bool packet_received = false;
-    auto handler = etl::make_delegate([&](etl::span<const uint8_t>) {
+    auto lambda = [&](etl::span<const uint8_t>) {
         packet_received = true;
-    });
-    ps.setPacketHandler(handler);
+    };
+    ps.setPacketHandler(PacketSerial<COBS, etl::crc16>::PacketHandler::create(lambda));
 
     uint8_t payload[] = { 0x01, 0x02, 0x03, 0x04 };
     ps.send(stream, etl::span<const uint8_t>(payload, sizeof(payload)));
