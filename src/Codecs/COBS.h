@@ -26,28 +26,28 @@ public:
             return etl::unexpected(ErrorCode::BufferFull);
         }
 
-        size_t write_index = 1;
-        size_t code_index = 0;
+        auto out_it = output.begin();
+        auto code_it = out_it++; 
         uint8_t code = 1;
 
         etl::for_each(input.begin(), input.end(), [&](uint8_t byte) {
             if (byte == Marker) {
-                output[code_index] = code;
+                *code_it = code;
                 code = 1;
-                code_index = write_index++;
+                code_it = out_it++;
             } else {
-                output[write_index++] = byte;
+                *out_it++ = byte;
                 code++;
                 if (code == 0xFF) {
-                    output[code_index] = code;
+                    *code_it = code;
                     code = 1;
-                    code_index = write_index++;
+                    code_it = out_it++;
                 }
             }
         });
         
-        output[code_index] = code;
-        return write_index;
+        *code_it = code;
+        return etl::distance(output.begin(), out_it);
     }
 
     /**
@@ -58,44 +58,36 @@ public:
     etl::expected<size_t, ErrorCode> decode_impl(etl::span<const uint8_t> input, etl::span<uint8_t> output) {
         if (input.empty()) return 0;
 
-        size_t write_index = 0;
+        auto out_it = output.begin();
+        auto in_it = input.begin();
         
-        // Use etl::for_each with a custom jump logic is not possible, 
-        // so we use a functional recursion or an iterator-based approach that avoids raw while.
-        // For COBS, we'll use a controlled iteration over the input span.
-        auto it = input.begin();
-        
-        // Since we can't use 'while' or 'for', we use etl::for_each over the possible max size
-        // and check the iterator state.
         etl::for_each(input.begin(), input.end(), [&](const uint8_t&) {
-            if (it == input.end()) return;
+            if (in_it == input.end()) return;
 
-            uint8_t code = *it++;
+            uint8_t code = *in_it++;
             const size_t num_literals = code - 1;
 
-            if (it + num_literals > input.end()) {
-                // Malformed, we can't easily return error from lambda, 
-                // but we can invalidate the iterator.
-                it = input.end();
+            if (in_it + num_literals > input.end()) {
+                in_it = input.end();
                 return;
             }
 
             if (num_literals > 0) {
-                if (write_index + num_literals <= output.size()) {
-                    etl::copy_n(it, num_literals, output.begin() + write_index);
-                    write_index += num_literals;
+                if (etl::distance(out_it, output.end()) >= static_cast<ptrdiff_t>(num_literals)) {
+                    etl::copy_n(in_it, num_literals, out_it);
+                    out_it += num_literals;
                 }
-                it += num_literals;
+                in_it += num_literals;
             }
 
-            if (code < 0xFF && it != input.end()) {
-                if (write_index < output.size()) {
-                    output[write_index++] = Marker;
+            if (code < 0xFF && in_it != input.end()) {
+                if (out_it != output.end()) {
+                    *out_it++ = Marker;
                 }
             }
         });
 
-        return write_index;
+        return etl::distance(output.begin(), out_it);
     }
 
     /**

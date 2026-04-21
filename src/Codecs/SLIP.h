@@ -24,67 +24,61 @@ public:
      * @brief Encode a byte buffer with SLIP.
      */
     etl::expected<size_t, ErrorCode> encode_impl(etl::span<const uint8_t> input, etl::span<uint8_t> output) {
-        size_t write_index = 0;
+        auto out_it = output.begin();
         
-        // Optional: SLIP can start with END to flush noise.
-        if (write_index < output.size()) {
-            output[write_index++] = END;
+        if (out_it != output.end()) {
+            *out_it++ = END;
         } else {
             return etl::unexpected(ErrorCode::BufferFull);
         }
 
-        auto result = etl::for_each(input.begin(), input.end(), [&](uint8_t byte) {
-            if (write_index >= output.size()) return;
+        etl::for_each(input.begin(), input.end(), [&](uint8_t byte) {
+            if (out_it == output.end()) return;
             
             if (byte == END) {
-                if (write_index + 1 < output.size()) {
-                    output[write_index++] = ESC;
-                    output[write_index++] = ESC_END;
+                if (etl::distance(out_it, output.end()) >= 2) {
+                    *out_it++ = ESC;
+                    *out_it++ = ESC_END;
                 }
             } else if (byte == ESC) {
-                if (write_index + 1 < output.size()) {
-                    output[write_index++] = ESC;
-                    output[write_index++] = ESC_ESC;
+                if (etl::distance(out_it, output.end()) >= 2) {
+                    *out_it++ = ESC;
+                    *out_it++ = ESC_ESC;
                 }
             } else {
-                output[write_index++] = byte;
+                *out_it++ = byte;
             }
         });
-
-        // Basic check for buffer overflow during iteration
-        if (write_index >= output.size() && input.size() > 0) {
-             // This is simplified; real SLIP check should be more granular
-        }
         
-        return write_index;
+        return etl::distance(output.begin(), out_it);
     }
 
     /**
      * @brief Decode a SLIP-encoded buffer.
      */
     etl::expected<size_t, ErrorCode> decode_impl(etl::span<const uint8_t> input, etl::span<uint8_t> output) {
-        size_t write_index = 0;
+        auto out_it = output.begin();
         bool escape_next = false;
 
         etl::for_each(input.begin(), input.end(), [&](uint8_t byte) {
             if (byte == END) return;
 
             if (escape_next) {
-                if (write_index < output.size()) {
-                    if (byte == ESC_END) output[write_index++] = END;
-                    else if (byte == ESC_ESC) output[write_index++] = ESC;
+                if (out_it != output.end()) {
+                    if (byte == ESC_END) *out_it++ = END;
+                    else if (byte == ESC_ESC) *out_it++ = ESC;
                 }
                 escape_next = false;
             } else if (byte == ESC) {
                 escape_next = true;
             } else {
-                if (write_index < output.size()) {
-                    output[write_index++] = byte;
+                if (out_it != output.end()) {
+                    *out_it++ = byte;
                 }
             }
         });
         
-        return write_index;
+        return etl::distance(output.begin(), out_it);
     }
 
     /**

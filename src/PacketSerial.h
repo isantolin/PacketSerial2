@@ -174,11 +174,12 @@ private:
             // 4. Send in blocks
             const size_t total_encoded = result.value();
             const size_t num_chunks = (total_encoded + 31) / 32;
+            auto work_it = _work_buffer.begin() + encode_offset;
             
             etl::for_each(etl::make_index_iterator(0), etl::make_index_iterator(num_chunks), [&](size_t chunk_idx) {
                 const size_t offset = chunk_idx * 32;
                 const size_t chunk_size = (total_encoded - offset > 32) ? 32 : (total_encoded - offset);
-                stream.write(_work_buffer.data() + encode_offset + offset, chunk_size);
+                stream.write(etl::addressof(*(work_it + offset)), chunk_size);
                 _watchdog.feed();
             });
             
@@ -192,11 +193,12 @@ private:
 
             const size_t total_encoded = result.value();
             const size_t num_chunks = (total_encoded + 31) / 32;
+            auto work_it = _work_buffer.begin();
 
             etl::for_each(etl::make_index_iterator(0), etl::make_index_iterator(num_chunks), [&](size_t chunk_idx) {
                 const size_t offset = chunk_idx * 32;
                 const size_t chunk_size = (total_encoded - offset > 32) ? 32 : (total_encoded - offset);
-                stream.write(_work_buffer.data() + offset, chunk_size);
+                stream.write(etl::addressof(*(work_it + offset)), chunk_size);
                 _watchdog.feed();
             });
 
