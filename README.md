@@ -74,7 +74,21 @@ void loop() {
 
 - [Getting Started](docs/GETTING_STARTED.md)
 - [Industrial Robustness (CRC & Errors)](examples/PacketSerialReverseEchoAdvanced/PacketSerialReverseEchoAdvanced.ino)
+- [Unit Testing](tests/TestSuite.cpp)
 - [Changelog](docs/CHANGELOG.md)
+
+---
+
+## 🧪 Testing
+
+The library includes a PC-based unit test suite located in the `tests/` directory. It uses a hardware-agnostic approach to verify logic integrity.
+
+To run the tests:
+```bash
+cd tests
+make
+```
+*Note: Requires ETL to be installed in your system include path.*
 
 ## License
 
