@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/)
 and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.html).
 
+## [2.2.0] 2026-04-20
+
+### Added
+- **Pure-ETL Implementation**: Completely eradicated all manual `for` and `while` loops in the core logic.
+- **SIL-2 Compliance Patterns**: Strict determinism with explicit lambda captures and separated increment operations.
+- **Bulk-Write Optimization**: Dramatic performance boost (up to 75%) on Arduino by sending data in 32-byte blocks.
+- **Symmetric CRC Support**: Full support for CRC in the `send()` pipeline, compatible with any ETL CRC type.
+- **PC Unit Test Suite**: Added a hardware-agnostic test suite in `tests/` for logic verification.
+- **PacketSerialBase**: New base class to minimize template bloat and Flash consumption.
+
+### Changed
+- **Breaking Change**: `send()` is now public and fully supports integrated CRC.
+- **API Purism**: Replaced all remaining raw pointer arithmetic and manual indexing `[]` with ETL iterators.
+- **Metadata**: Updated `library.properties` and `keywords.txt` for the Arduino IDE.
+
 ## [2.0.0] 2026-03-24
 
 ### Added

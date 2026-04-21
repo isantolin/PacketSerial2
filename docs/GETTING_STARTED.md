@@ -1,19 +1,19 @@
 # Getting Started with PacketSerial v2.2
 
-Version 2.2 is an optimized release. If you are migrating from v1.x, please read the [Changelog](CHANGELOG.md) for breaking changes.
+Version 2.2 is an optimized release for high-performance and safety-critical systems.
 
 ## 1. Prerequisites
 
 - **Embedded Template Library (ETL)**: This is a MANDATORY dependency. Install it via the Arduino Library Manager or download it from [etlcpp.com](https://www.etlcpp.com/).
-- **C++17**: The library uses modern features like `if constexpr`, `expected`, and `span`.
-- **Zero-STL**: This library does NOT require the C++ Standard Template Library. It only requires standard C headers (`stdint.h`, `stddef.h`).
+- **C++17**: The library uses modern features like `if constexpr` and `span`.
+- **Zero-STL**: This library does NOT require the C++ Standard Template Library.
 
 ## 2. Basic Setup (Zero-Heap)
 
-Unlike previous versions, PacketSerial v2.2 does not allocate any memory internally. You must provide the buffers.
+PacketSerial v2.2 does not allocate any memory internally. You must provide the buffers statically.
 
 ### Allocate Buffers
-Use `etl::array` to ensure memory is allocated statically in RAM (not on the stack or heap).
+Use `etl::array` to ensure memory is allocated in RAM (not on the stack or heap).
 
 ```cpp
 #include <PacketSerial.h>
@@ -26,61 +26,49 @@ using namespace PacketSerial2;
 etl::array<uint8_t, 128> rx_storage;
 
 // Storage for decoding/encoding processes
-// Must be larger than your maximum frame (payload + CRC + overhead)
 etl::array<uint8_t, 256> work_buffer;
 
-// Instantiate the engine (v2.2 uses optimized ETL algorithms)
+// Instantiate the engine
 PacketSerial<COBS> ps(rx_storage, work_buffer);
 ```
 
 ## 3. Handling Packets
 
-Version 2.0 uses **Delegates** instead of raw function pointers. This allows you to bind to both global functions and class methods easily.
+Register a callback function (Delegate) to handle incoming decoded packets.
 
 ```cpp
 void onPacket(etl::span<const uint8_t> packet) {
-    // 'packet' is a read-only view of the decoded data.
-    // It exists only during this callback. If you need it later, copy it.
-    Serial.print("Received bytes: ");
-    Serial.println(packet.size());
+    // packet.data() contains the data
+    // packet.size() contains the size
 }
 
 void setup() {
     Serial.begin(115200);
-    
-    // Register the callback
+    // Bind your function using etl::make_delegate
     ps.setPacketHandler(etl::make_delegate(onPacket));
 }
 
 void loop() {
-    // Keep processing the stream
     ps.update(Serial);
 }
 ```
 
-## 4. Integrity (Optional CRC)
+## 4. Advanced: Using CRC
 
-To enable CRC validation, pass an ETL CRC type as the second template parameter.
+PacketSerial v2.2 supports full symmetric data integrity. When a CRC is specified, it is automatically calculated and appended during `send()`, and verified during `update()`.
 
 ```cpp
 #include <etl/crc16.h>
 
-// Now every packet is validated with CRC16 automatically.
+// v2.2 supports any ETL CRC type seamlessly (crc8, crc16, crc32)
 PacketSerial<COBS, etl::crc16> ps(rx_storage, work_buffer);
 ```
 
-## 5. Error Handling
+## 5. Industrial Safety (SIL-2 Ready)
 
-Register an error handler to detect overflows or corrupt packets.
+For safety-critical systems, you can inject locking policies (e.g., for ISR safety) and watchdog heartbeat hooks.
 
 ```cpp
-void onError(ErrorCode error) {
-    if (error == ErrorCode::InvalidChecksum) {
-        // Handle corrupt packet
-    }
-}
-
-void setup() {
-    ps.setErrorHandler(etl::make_delegate(onError));
-}
+// Example: ISR-Safe with Watchdog support
+PacketSerial<COBS, NoCRC, ArduinoAtomicLock> ps(rx_storage, work_buffer);
 ```

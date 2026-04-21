@@ -1,22 +1,23 @@
-# Design Background
+# Background
 
-**PacketSerial 2.0** is a complete evolution of the original library. While the goal remains the same—to provide reliable, packet-based communication over a byte-stream—the internal philosophy has shifted towards **Industrial Grade Robustness**.
+PacketSerial was originally developed to provide a simple, reliable way to send packets of data over a serial connection. The original version relied on dynamic memory allocation and was tightly coupled with the Arduino environment.
 
-## Why Version 2.0?
+## The Evolution to v2.2
 
-Traditional Arduino libraries often rely on `malloc/free`, `new/delete`, or the Standard Template Library (STL), which lead to **Heap Fragmentation**. In high-integrity or long-running systems (like industrial sensors, robotics, or aerospace), heap fragmentation is a primary source of non-deterministic failures.
+With the rise of safety-critical embedded systems and the need for higher performance on resource-constrained hardware, PacketSerial has evolved into a sophisticated industrial-grade engine.
 
-### Design Pillars
+### Modern C++ and ETL
 
-1.  **Zero-Heap (Deterministic Memory)**: Every single byte of RAM used by PacketSerial is provided by the user at compile-time. This ensures that your system's memory usage is perfectly predictable and won't crash after weeks of uptime due to fragmentation.
-2.  **Functional Safety**: We use `etl::span` and `etl::expected` to ensure that data access is always safe and errors (like corrupt packets or overflows) are handled explicitly and type-safely.
-3.  **Zero-Cost Abstractions**: By using the **Curiously Recurring Template Pattern (CRTP)** and `if constexpr`, the compiler can optimize the code specifically for your configuration. For example, if you don't use a CRC, the CRC-related code is completely removed by the linker.
-4.  **ETL Native Integration**: Instead of reinventing the wheel, we leverage the battle-tested **Embedded Template Library (ETL)**, which is the industry standard for modern, safety-critical C++ on microcontrollers.
+Starting with version 2.0, the library moved to a **Zero-Heap** architecture. By integrating the **Embedded Template Library (ETL)**, we achieved deterministic behavior and absolute control over RAM usage.
 
-## How it Works
+### Pure Functional Design (v2.2)
 
-The PacketSerial engine acts as a **State Machine** that consumes bytes from a stream. It stores them in a circular buffer (`rx_storage`) until a delimiter (like `0x00`) is found. 
+The v2.2 release marks the transition to a **Pure ETL** design. Every cycle of the CPU is optimized by delegating flow control to ETL algorithms (`etl::algorithm`), eliminating manual loops and raw pointer arithmetic. This ensures that the code is not only faster but also mathematically more predecible and easier to certify for safety standards like **SIL-2**.
 
-Once a delimiter is found, it "linearizes" the frame into the `work_buffer`, validates the integrity (CRC), and decodes the payload (COBS/SLIP). Finally, it triggers an `etl::delegate` to your application code.
+### Industrial Strength
 
-This entire process happens **without a single dynamic allocation**.
+Today, PacketSerial2 provides:
+1.  **Framing**: Efficient COBS and SLIP implementations.
+2.  **Integrity**: Template-based CRC injection.
+3.  **Safety**: Atomic lock policies and watchdog hooks.
+4.  **Performance**: Block-based serial transmission optimized for 8-bit and 32-bit microcontrollers.

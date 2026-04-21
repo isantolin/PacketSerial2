@@ -1,40 +1,40 @@
-# Troubleshooting PacketSerial 2.0
+# Troubleshooting PacketSerial v2.2
 
 ## ❌ Compilation Errors
 
 ### "etl/array.h (or span.h, delegate.h): No such file or directory"
-**Solution**: PacketSerial 2.0 requires the **Embedded Template Library (ETL)**. Install it via the Arduino Library Manager (search for "Embedded Template Library") or download it from [etlcpp.com](https://www.etlcpp.com/).
+**Solution**: PacketSerial requires the **Embedded Template Library (ETL)**. Install it via the Arduino Library Manager.
 
-### "namespace 'PacketSerial2' does not exist"
-**Solution**: Ensure you are including `<PacketSerial.h>` and using the `PacketSerial2::` namespace or a `using namespace PacketSerial2;` statement.
+### "no matching function for call to PacketSerial"
+**Solution**: Version 2.2 requires explicit buffer injection in the constructor. Ensure you are passing two `etl::span` or `etl::array` objects.
+
+---
+
+## 🧪 Unit Testing
+
+If you suspect a logic bug, you can run the PC-based unit test suite:
+1. Navigate to the `tests/` directory.
+2. Run `make`.
+3. Verify that all COBS/SLIP/CRC tests pass.
 
 ---
 
 ## ⚠️ Runtime Errors
 
 ### `ErrorCode::BufferOverflow`
-**Cause**: The internal circular buffer (`rx_storage`) or the `work_buffer` you provided is full. This happens when:
-1.  Your packets are larger than the buffers you allocated.
-2.  You are receiving data faster than you are calling `.update()`.
-3.  The packet delimiter (e.g., `0x00`) is missing or corrupt.
-
+**Cause**: The internal circular buffer (`rx_storage`) or the `work_buffer` you provided is full. 
 **Solution**: 
 - Increase the size of your `etl::array`s.
-- Call `ps.update(Serial)` more frequently in your main loop.
+- Call `ps.update(Serial)` more frequently.
 
-### `ErrorCode::InvalidChecksum` (CRC Errors)
-**Cause**: A packet was received, but the CRC validation failed.
+### `ErrorCode::InvalidChecksum`
+**Cause**: Data corruption or CRC algorithm mismatch.
 **Solution**:
-1.  Check for electrical noise on your serial lines (RS-232, RS-485, etc.).
-2.  Ensure both the sender and receiver are using the **same CRC algorithm** (e.g., both use `etl::crc16`).
-3.  Verify the baud rate and cable integrity.
-
-### `ErrorCode::MalformedFrame` (COBS/SLIP Errors)
-**Cause**: The incoming data does not follow the encoding protocol (e.g., COBS detected a 0x00 where it shouldn't be).
-**Solution**: This is often caused by line noise or desynchronization. PacketSerial 2.0 will automatically attempt to re-sync at the next delimiter.
+1. Check electrical noise.
+2. Ensure both sides use the **same CRC type**.
 
 ### Packets are not being received
 **Solution**:
-1.  Check your hardware connections (TX/RX).
-2.  Ensure you have registered a `PacketHandler` using `ps.setPacketHandler()`.
-3.  Verify that your sender is actually sending the **packet delimiter** (e.g., `0x00` for COBS or `0xC0` for SLIP).
+1. Verify the **Packet Marker** (delimiter).
+2. Ensure `ps.update()` is being called in `loop()`.
+3. Check that a handler is registered with `ps.setPacketHandler()`.

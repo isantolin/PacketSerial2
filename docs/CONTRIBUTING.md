@@ -14,15 +14,18 @@ Check out the [Help Wanted](../../../issues?q=is%3Aissue+is%3Aopen+label%3A%22he
 
 Pull Requests are always welcome, so if you make any improvements please feel free to float them back upstream :)
 
-### ⚖️ Design Principles (v2.0+)
+### ⚖️ Design Principles (v2.2)
 
 All contributions to the core of PacketSerial MUST strictly follow these rules:
 
-1.  **Zero-Heap**: No `malloc`, `free`, `new`, or `delete`. No usage of standard library components that require a heap (like `std::vector` or `std::string`).
-2.  **No STL**: All containers, delegates, and utilities must come from the **ETL (Embedded Template Library)**.
-3.  **Deterministic RAM**: No large buffers should be allocated on the stack. Memory for internal operations must be provided by the user via `etl::span` or `etl::array`.
-4.  **Zero-Cost Abstractions**: Use Templates and **CRTP** (Curiously Recurring Template Pattern) instead of virtual functions to save Flash and RAM.
-5.  **C++17 Freestanding**: The library must be compatible with C++17 and should not rely on a full operating system runtime.
+1.  **Zero-Heap**: No `malloc`, `free`, `new`, or `delete`.
+2.  **Zero-STL**: Do not include C++ standard headers like `<algorithm>` or `<vector>`. Use C standard headers (`<stdint.h>`) or ETL equivalents.
+3.  **Pure ETL (Functional)**: Avoid manual `for` and `while` loops in core logic. Use `etl::algorithm` or `etl::for_each`.
+4.  **Deterministic RAM**: Buffers must be provided by the user via `etl::span` or `etl::array`.
+5.  **SIL-2 Determinism**: Use explicit lambda captures and avoid post-increments inside complex expressions.
+6.  **C++17 Freestanding**: Compatible with any toolchain without a full OS runtime.
+
+New features MUST include unit tests in the `tests/` directory to confirm functionality.
 
 1. Fork this repository.
 2. Create your feature branch (`git checkout -b my-new-feature`).
