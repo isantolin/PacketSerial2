@@ -1,5 +1,5 @@
 #######################################
-# Syntax Coloring Map For PacketSerial
+# Syntax Coloring Map For PacketSerial2
 #######################################
 
 #######################################
@@ -12,6 +12,9 @@ SLIP	KEYWORD1
 ErrorCode	KEYWORD1
 NoCRC	KEYWORD1
 ICodec	KEYWORD1
+NoLock	KEYWORD1
+ArduinoAtomicLock	KEYWORD1
+NoWatchdog	KEYWORD1
 
 #######################################
 # Methods and Functions (KEYWORD2)
@@ -21,11 +24,12 @@ update	KEYWORD2
 send	KEYWORD2
 setPacketHandler	KEYWORD2
 setErrorHandler	KEYWORD2
-onPacketReceived	KEYWORD2
-onError	KEYWORD2
 getEncodedBufferSize	KEYWORD2
 encode	KEYWORD2
 decode	KEYWORD2
+feed	KEYWORD2
+lock	KEYWORD2
+unlock	KEYWORD2
 
 #######################################
 # Constants (LITERAL1)

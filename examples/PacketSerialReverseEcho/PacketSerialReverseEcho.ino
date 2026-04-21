@@ -1,12 +1,11 @@
 /**
  * @file PacketSerialReverseEcho.ino
- * @brief Simple reverse echo example using Modern PacketSerial (v2.1).
- * 
- * New in v2.1: ISR-Safe locking policy.
+ * @brief Simple reverse echo example using Modern PacketSerial (v2.2).
  */
 
 #include <stdint.h>
 #include <etl/array.h>
+#include <etl/algorithm.h>
 #include <PacketSerial.h>
 #include <Codecs/COBS.h>
 
@@ -16,18 +15,20 @@ using namespace PacketSerial2;
 etl::array<uint8_t, 128> rxStorage;
 etl::array<uint8_t, 256> workBuffer;
 
-// 2. INSTANTIATE WITH SAFETY POLICY:
-// We use ArduinoAtomicLock to make the engine ISR-Safe.
-// This prevents buffer corruption if update() and send() are called 
-// from different contexts (e.g. main loop vs timer interrupt).
+// 2. INSTANTIATE WITH SAFETY POLICY
 PacketSerial<COBS, NoCRC, ArduinoAtomicLock> ps(rxStorage, workBuffer);
 
+// 3. ZERO-STL REVERSE BUFFER
+etl::array<uint8_t, 256> reverseBuffer;
+
 void onPacketReceived(etl::span<const uint8_t> packet) {
-    uint8_t reversed[packet.size()];
-    for (size_t i = 0; i < packet.size(); i++) {
-        reversed[i] = packet[packet.size() - 1 - i];
-    }
-    ps.send(Serial, etl::span<const uint8_t>(reversed, packet.size()));
+    if (packet.size() > reverseBuffer.size()) return;
+
+    // Use ETL algorithm instead of manual for loop
+    etl::reverse_copy(packet.begin(), packet.end(), reverseBuffer.begin());
+    
+    // Send it back
+    ps.send(Serial, etl::span<const uint8_t>(reverseBuffer.data(), packet.size()));
 }
 
 void setup() {

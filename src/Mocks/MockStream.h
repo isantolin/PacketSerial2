@@ -4,6 +4,7 @@
 #include <stddef.h>
 #include <etl/vector.h>
 #include <etl/deque.h>
+#include <etl/algorithm.h>
 
 namespace PacketSerial2 {
 namespace Mocks {
@@ -49,10 +50,13 @@ public:
     /**
      * @brief Inject raw data to simulate incoming bytes from hardware.
      */
-    void injectIncomingData(const uint8_t* data, size_t size) {
-        for (size_t i = 0; i < size; ++i) {
-            if (!_rx_buffer.full()) _rx_buffer.push_back(data[i]);
-        }
+    void injectIncomingData(etl::span<const uint8_t> data) {
+        const size_t space = _rx_buffer.max_size() - _rx_buffer.size();
+        const size_t count = (data.size() < space) ? data.size() : space;
+        
+        etl::for_each(data.begin(), data.begin() + count, [this](uint8_t b) {
+            _rx_buffer.push_back(b);
+        });
     }
 
     /**

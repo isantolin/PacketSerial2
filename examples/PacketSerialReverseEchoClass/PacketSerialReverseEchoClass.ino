@@ -1,14 +1,11 @@
 /**
  * @file PacketSerialReverseEchoClass.ino
- * @brief Reverse echo example inside a class (v2.1).
- * 
- * Demonstrates:
- * 1. Safe encapsulation in an OOP environment.
- * 2. Atomic sections for high-reliability applications.
+ * @brief Reverse echo example using classes and ETL (v2.2).
  */
 
 #include <stdint.h>
 #include <etl/array.h>
+#include <etl/algorithm.h>
 #include <PacketSerial.h>
 #include <Codecs/COBS.h>
 
@@ -16,9 +13,6 @@ using namespace PacketSerial2;
 
 class MyEchoService {
 public:
-    /**
-     * @brief Constructor with ArduinoAtomicLock (v2.1).
-     */
     MyEchoService() : _ps(_rx_storage, _work_buffer) {}
 
     void begin() {
@@ -30,18 +24,19 @@ public:
     }
 
     void onPacketReceived(etl::span<const uint8_t> packet) {
-        uint8_t reversed[packet.size()];
-        for (size_t i = 0; i < packet.size(); i++) {
-            reversed[i] = packet[packet.size() - 1 - i];
-        }
-        _ps.send(Serial, etl::span<const uint8_t>(reversed, packet.size()));
+        if (packet.size() > _reverse_buffer.size()) return;
+
+        // Pure ETL algorithm
+        etl::reverse_copy(packet.begin(), packet.end(), _reverse_buffer.begin());
+        
+        _ps.send(Serial, etl::span<const uint8_t>(_reverse_buffer.data(), packet.size()));
     }
 
 private:
     etl::array<uint8_t, 128> _rx_storage;
     etl::array<uint8_t, 256> _work_buffer;
+    etl::array<uint8_t, 256> _reverse_buffer;
 
-    // We can also pass policies as template parameters here.
     PacketSerial<COBS, NoCRC, ArduinoAtomicLock> _ps;
 };
 

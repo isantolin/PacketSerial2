@@ -4,7 +4,6 @@
 #include <stddef.h>
 #include <etl/delegate.h>
 #include <etl/circular_buffer.h>
-#include <etl/bitset.h>
 #include <etl/span.h>
 #include <etl/expected.h>
 #include <etl/algorithm.h>
@@ -55,7 +54,7 @@ public:
                  etl::span<uint8_t> work_buffer,
                  LockPolicy lock = LockPolicy(),
                  WatchdogPolicy watchdog = WatchdogPolicy()) 
-        : _rx_buffer(rx_storage.data(), rx_storage.size()), 
+        : _rx_buffer(rx_storage.begin(), rx_storage.end()), 
           _work_buffer(work_buffer),
           _lock(lock),
           _watchdog(watchdog) {}
@@ -68,37 +67,49 @@ public:
      */
     template <typename StreamType>
     void update(StreamType& stream) {
-        while (stream.available() > 0) {
+        // We use a functional-style recursion or limited loop to avoid raw 'while' if possible,
+        // but for a stream, we can use a jump-based approach or a predefined etl utility.
+        // Since ETL doesn't have a StreamIterator, we'll use a local lambda with etl::for_each over a count.
+        
+        size_t available = static_cast<size_t>(stream.available());
+        if (available == 0) return;
+
+        etl::for_each(etl::make_index_iterator(0), etl::make_index_iterator(available), [&](size_t) {
             uint8_t data = static_cast<uint8_t>(stream.read());
 
             if (data == Codec::Marker) {
-                size_t bytes_to_process = 0;
-                
-                _lock.lock();
-                bytes_to_process = _rx_buffer.size();
-                if (bytes_to_process > 0) {
-                    // [SIL-2] Atomic linearization to work buffer
-                    for (size_t i = 0; i < bytes_to_process; ++i) {
-                        _work_buffer[i] = _rx_buffer[i];
-                    }
-                    _rx_buffer.clear();
-                }
-                _lock.unlock();
-
-                if (bytes_to_process > 0) {
-                    processFrame(bytes_to_process);
-                }
+                _ps_internal_process_marker();
             } else {
-                _lock.lock();
-                if (_rx_buffer.full()) {
-                    _rx_buffer.clear(); 
-                    _lock.unlock();
-                    handleError(ErrorCode::BufferOverflow);
-                } else {
-                    _rx_buffer.push(data);
-                    _lock.unlock();
-                }
+                _ps_internal_push_rx(data);
             }
+        });
+    }
+
+private:
+    void _ps_internal_process_marker() {
+        size_t bytes_to_process = 0;
+        _lock.lock();
+        bytes_to_process = _rx_buffer.size();
+        if (bytes_to_process > 0) {
+            etl::copy(_rx_buffer.begin(), _rx_buffer.end(), _work_buffer.begin());
+            _rx_buffer.clear();
+        }
+        _lock.unlock();
+
+        if (bytes_to_process > 0) {
+            processFrame(bytes_to_process);
+        }
+    }
+
+    void _ps_internal_push_rx(uint8_t data) {
+        _lock.lock();
+        if (_rx_buffer.full()) {
+            _rx_buffer.clear(); 
+            _lock.unlock();
+            handleError(ErrorCode::BufferOverflow);
+        } else {
+            _rx_buffer.push(data);
+            _lock.unlock();
         }
     }
 
@@ -117,41 +128,80 @@ public:
             return etl::unexpected(ErrorCode::BufferFull);
         }
 
-        // [SIL-2] Ensure we don't encode in-place if codec doesn't support it.
-        // Check if the packet points inside our work buffer
-        const uint8_t* p_start = packet.data();
-        const uint8_t* w_start = _work_buffer.data();
-        bool overlaps = (p_start >= w_start && p_start < w_start + _work_buffer.size());
+        // Check if the packet points inside our work buffer to avoid collisions
+        // Using etl::span properties instead of raw pointer math
+        bool overlaps = (packet.data() >= _work_buffer.data() && 
+                         packet.data() < _work_buffer.data() + _work_buffer.size());
 
-        if constexpr (CRCType::Size == 0) {
-            if (overlaps) {
-                 // Needs to copy out or split. We use a fallback split for safety.
-                 const size_t mid = _work_buffer.size() - requiredEncodedSize;
-                 if (totalUnencodedSize > mid) return etl::unexpected(ErrorCode::BufferFull);
-                 for (size_t i = 0; i < payloadSize; ++i) _work_buffer[i] = packet[i];
-                 Codec codec;
-                 auto result = codec.encode(etl::span<const uint8_t>(_work_buffer.data(), totalUnencodedSize), _work_buffer.subspan(mid));
-                 if (!result.has_value()) return result;
-                 for (size_t i = 0; i < result.value(); ++i) {
-                     stream.write(_work_buffer[mid + i]);
-                     if ((i % 32) == 0) _watchdog.feed();
-                 }
-                 stream.write(Codec::Marker);
-                 return result.value() + 1;
-            } else {
-                 Codec codec;
-                 auto result = codec.encode(packet, _work_buffer);
-                 if (!result.has_value()) return result;
-                 for (size_t i = 0; i < result.value(); ++i) {
-                     stream.write(_work_buffer[i]);
-                     if ((i % 32) == 0) _watchdog.feed();
-                 }
-                 stream.write(Codec::Marker);
-                 return result.value() + 1;
+        if (overlaps || CRCType::Size > 0) {
+            if (totalUnencodedSize + requiredEncodedSize > _work_buffer.size()) {
+                return etl::unexpected(ErrorCode::BufferFull);
             }
+
+            // 1. Copy payload (using etl::copy which is optimized)
+            if (packet.data() != _work_buffer.data()) {
+                etl::copy(packet.begin(), packet.end(), _work_buffer.begin());
+            }
+
+            // 2. Add CRC if needed
+            if constexpr (CRCType::Size > 0) {
+                _crc_engine.reset();
+                etl::for_each(_work_buffer.begin(), _work_buffer.begin() + payloadSize, [this](uint8_t b) {
+                    _crc_engine.add(b);
+                });
+                
+                typename CRCType::value_type crcValue = _ps_internal_get_crc();
+                
+                auto crc_span = _work_buffer.subspan(payloadSize, CRCType::Size);
+                size_t shift = 0;
+                etl::for_each(crc_span.begin(), crc_span.end(), [&](uint8_t& b) {
+                    b = static_cast<uint8_t>((crcValue >> (shift++ * 8)) & 0xFF);
+                });
+            }
+...
+    typename CRCType::value_type _ps_internal_get_crc() const {
+        return _crc_engine.value();
+    }
+
+            // 3. Encode from start of work_buffer to a safe offset
+            const size_t encode_offset = _work_buffer.size() - requiredEncodedSize;
+            Codec codec;
+            auto result = codec.encode(etl::span<const uint8_t>(_work_buffer.data(), totalUnencodedSize), 
+                                       _work_buffer.subspan(encode_offset));
+            
+            if (!result.has_value()) return result;
+
+            // 4. Send in blocks
+            const size_t total_encoded = result.value();
+            const size_t num_chunks = (total_encoded + 31) / 32;
+            
+            etl::for_each(etl::make_index_iterator(0), etl::make_index_iterator(num_chunks), [&](size_t chunk_idx) {
+                const size_t offset = chunk_idx * 32;
+                const size_t chunk_size = (total_encoded - offset > 32) ? 32 : (total_encoded - offset);
+                stream.write(_work_buffer.data() + encode_offset + offset, chunk_size);
+                _watchdog.feed();
+            });
+            
+            stream.write(Codec::Marker);
+            return total_encoded + 1;
         } else {
-             // Not optimized for this test case
-             return etl::unexpected(ErrorCode::BufferFull);
+            // Optimization for no CRC and no overlap
+            Codec codec;
+            auto result = codec.encode(packet, _work_buffer);
+            if (!result.has_value()) return result;
+
+            const size_t total_encoded = result.value();
+            const size_t num_chunks = (total_encoded + 31) / 32;
+
+            etl::for_each(etl::make_index_iterator(0), etl::make_index_iterator(num_chunks), [&](size_t chunk_idx) {
+                const size_t offset = chunk_idx * 32;
+                const size_t chunk_size = (total_encoded - offset > 32) ? 32 : (total_encoded - offset);
+                stream.write(_work_buffer.data() + offset, chunk_size);
+                _watchdog.feed();
+            });
+
+            stream.write(Codec::Marker);
+            return total_encoded + 1;
         }
     }
 
@@ -178,14 +228,17 @@ private:
             
             size_t payloadSize = decodedSize - CRCType::Size;
             _crc_engine.reset();
-            for (size_t i = 0; i < payloadSize; ++i) {
-                _crc_engine.add(_work_buffer[i]);
-            }
+            
+            etl::for_each(_work_buffer.begin(), _work_buffer.begin() + payloadSize, [this](uint8_t byte) {
+                _crc_engine.add(byte);
+            });
             
             uint32_t receivedCrc = 0;
-            for (size_t i = 0; i < CRCType::Size; ++i) {
-                receivedCrc |= (static_cast<uint32_t>(_work_buffer[payloadSize + i]) << (i * 8));
-            }
+            uint8_t shift_rx = 0;
+            etl::for_each(_work_buffer.begin() + payloadSize, _work_buffer.begin() + payloadSize + CRCType::Size, [&receivedCrc, &shift_rx](uint8_t b) {
+                receivedCrc |= (static_cast<uint32_t>(b) << (shift_rx * 8));
+                shift_rx++;
+            });
             
             if (_crc_engine.value() != receivedCrc) {
                 handleError(ErrorCode::InvalidChecksum);
@@ -208,8 +261,6 @@ private:
     LockPolicy _lock;
     WatchdogPolicy _watchdog;
 
-    PacketHandler _onPacket;
-    ErrorHandler _onError;
     CRCType _crc_engine;
 };
 

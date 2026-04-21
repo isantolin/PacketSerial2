@@ -1,15 +1,16 @@
-# Getting Started with PacketSerial v2.0
+# Getting Started with PacketSerial v2.2
 
-Version 2.0 is a complete rewrite. If you are migrating from v1.x, please read the [Changelog](CHANGELOG.md) for breaking changes.
+Version 2.2 is an optimized release. If you are migrating from v1.x, please read the [Changelog](CHANGELOG.md) for breaking changes.
 
 ## 1. Prerequisites
 
 - **Embedded Template Library (ETL)**: This is a MANDATORY dependency. Install it via the Arduino Library Manager or download it from [etlcpp.com](https://www.etlcpp.com/).
-- **C++17**: The library uses modern features like `if constexpr`, `string_view`, and `span`.
+- **C++17**: The library uses modern features like `if constexpr`, `expected`, and `span`.
+- **Zero-STL**: This library does NOT require the C++ Standard Template Library. It only requires standard C headers (`stdint.h`, `stddef.h`).
 
 ## 2. Basic Setup (Zero-Heap)
 
-Unlike previous versions, PacketSerial v2.0 does not allocate any memory internally. You must provide the buffers.
+Unlike previous versions, PacketSerial v2.2 does not allocate any memory internally. You must provide the buffers.
 
 ### Allocate Buffers
 Use `etl::array` to ensure memory is allocated statically in RAM (not on the stack or heap).
@@ -28,7 +29,7 @@ etl::array<uint8_t, 128> rx_storage;
 // Must be larger than your maximum frame (payload + CRC + overhead)
 etl::array<uint8_t, 256> work_buffer;
 
-// Instantiate the engine
+// Instantiate the engine (v2.2 uses optimized ETL algorithms)
 PacketSerial<COBS> ps(rx_storage, work_buffer);
 ```
 
