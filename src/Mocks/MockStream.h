@@ -33,10 +33,11 @@ public:
      */
     size_t write(const uint8_t* buffer, size_t size) {
         size_t written = 0;
-        for (size_t i = 0; i < size; ++i) {
-            if (write(buffer[i]) == 0) break;
-            written++;
-        }
+        etl::for_each(buffer, buffer + size, [this, &written](uint8_t byte) {
+            if (this->write(byte) != 0) {
+                written++;
+            }
+        });
         return written;
     }
 

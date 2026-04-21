@@ -71,7 +71,9 @@ public:
         size_t available = static_cast<size_t>(stream.available());
         if (available == 0) return;
 
-        for (size_t i = 0; i < available; ++i) {
+        // Functional-style loop using a range-based approach or local loop proxy.
+        // We simulate the iteration using for_each on a count.
+        etl::for_each(etl::make_index_iterator(size_t(0)), etl::make_index_iterator(available), [this, &stream](size_t) {
             uint8_t data = static_cast<uint8_t>(stream.read());
 
             if (data == Codec::Marker) {
@@ -79,7 +81,7 @@ public:
             } else {
                 this->_ps_internal_push_rx(data);
             }
-        }
+        });
     }
 
     /**
@@ -122,7 +124,7 @@ public:
                 typename CRCType::value_type crcValue = this->_ps_internal_get_crc();
                 
                 auto crc_span = _work_buffer.subspan(payloadSize, CRCSize);
-                size_t shift = 0;
+                uint8_t shift = 0;
                 etl::for_each(crc_span.begin(), crc_span.end(), [&crcValue, &shift](uint8_t& b) {
                     b = static_cast<uint8_t>((crcValue >> (shift * 8)) & 0xFF);
                     shift++;
@@ -139,12 +141,14 @@ public:
 
             // 4. Send in blocks
             const size_t total_encoded = result.value();
-            
-            for (size_t offset = 0; offset < total_encoded; offset += 32) {
+            const size_t num_chunks = (total_encoded + 31) / 32;
+
+            etl::for_each(etl::make_index_iterator(size_t(0)), etl::make_index_iterator(num_chunks), [this, &stream, total_encoded, encode_offset](size_t chunk_idx) {
+                const size_t offset = chunk_idx * 32;
                 const size_t chunk_size = (total_encoded - offset > 32) ? 32 : (total_encoded - offset);
                 stream.write(_work_buffer.data() + encode_offset + offset, chunk_size);
                 _watchdog.feed();
-            }
+            });
             
             stream.write(Codec::Marker);
             return total_encoded + 1;
@@ -155,12 +159,14 @@ public:
             if (!result.has_value()) return result;
 
             const size_t total_encoded = result.value();
+            const size_t num_chunks = (total_encoded + 31) / 32;
 
-            for (size_t offset = 0; offset < total_encoded; offset += 32) {
+            etl::for_each(etl::make_index_iterator(size_t(0)), etl::make_index_iterator(num_chunks), [this, &stream, total_encoded](size_t chunk_idx) {
+                const size_t offset = chunk_idx * 32;
                 const size_t chunk_size = (total_encoded - offset > 32) ? 32 : (total_encoded - offset);
                 stream.write(_work_buffer.data() + offset, chunk_size);
                 _watchdog.feed();
-            }
+            });
 
             stream.write(Codec::Marker);
             return total_encoded + 1;
