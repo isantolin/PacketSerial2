@@ -27,26 +27,32 @@ public:
         auto out_it = output.begin();
         
         if (out_it != output.end()) {
-            *out_it++ = END;
+            *out_it = END;
+            out_it++;
         } else {
             return etl::unexpected(ErrorCode::BufferFull);
         }
 
-        etl::for_each(input.begin(), input.end(), [&](uint8_t byte) {
+        etl::for_each(input.begin(), input.end(), [this, &out_it, &output](uint8_t byte) {
             if (out_it == output.end()) return;
             
             if (byte == END) {
                 if (etl::distance(out_it, output.end()) >= 2) {
-                    *out_it++ = ESC;
-                    *out_it++ = ESC_END;
+                    *out_it = ESC;
+                    out_it++;
+                    *out_it = ESC_END;
+                    out_it++;
                 }
             } else if (byte == ESC) {
                 if (etl::distance(out_it, output.end()) >= 2) {
-                    *out_it++ = ESC;
-                    *out_it++ = ESC_ESC;
+                    *out_it = ESC;
+                    out_it++;
+                    *out_it = ESC_ESC;
+                    out_it++;
                 }
             } else {
-                *out_it++ = byte;
+                *out_it = byte;
+                out_it++;
             }
         });
         
@@ -60,20 +66,27 @@ public:
         auto out_it = output.begin();
         bool escape_next = false;
 
-        etl::for_each(input.begin(), input.end(), [&](uint8_t byte) {
+        etl::for_each(input.begin(), input.end(), [this, &out_it, &output, &escape_next](uint8_t byte) {
             if (byte == END) return;
 
             if (escape_next) {
                 if (out_it != output.end()) {
-                    if (byte == ESC_END) *out_it++ = END;
-                    else if (byte == ESC_ESC) *out_it++ = ESC;
+                    if (byte == ESC_END) {
+                        *out_it = END;
+                        out_it++;
+                    }
+                    else if (byte == ESC_ESC) {
+                        *out_it = ESC;
+                        out_it++;
+                    }
                 }
                 escape_next = false;
             } else if (byte == ESC) {
                 escape_next = true;
             } else {
                 if (out_it != output.end()) {
-                    *out_it++ = byte;
+                    *out_it = byte;
+                    out_it++;
                 }
             }
         });

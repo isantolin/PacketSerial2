@@ -18,7 +18,7 @@ namespace PacketSerial2 {
  * @brief Null CRC implementation (Default).
  */
 struct NoCRC {
-    using ValueType = uint32_t;
+    using value_type = uint32_t;
     static constexpr size_t Size = 0;
     void reset() {}
     void add(uint8_t) {}
@@ -74,7 +74,7 @@ public:
         size_t available = static_cast<size_t>(stream.available());
         if (available == 0) return;
 
-        etl::for_each(etl::make_index_iterator(0), etl::make_index_iterator(available), [&](size_t) {
+        etl::for_each(etl::make_index_iterator(0), etl::make_index_iterator(available), [this, &stream](size_t) {
             uint8_t data = static_cast<uint8_t>(stream.read());
 
             if (data == Codec::Marker) {
@@ -154,14 +154,11 @@ private:
                 
                 auto crc_span = _work_buffer.subspan(payloadSize, CRCType::Size);
                 size_t shift = 0;
-                etl::for_each(crc_span.begin(), crc_span.end(), [&](uint8_t& b) {
-                    b = static_cast<uint8_t>((crcValue >> (shift++ * 8)) & 0xFF);
+                etl::for_each(crc_span.begin(), crc_span.end(), [&crcValue, &shift](uint8_t& b) {
+                    b = static_cast<uint8_t>((crcValue >> (shift * 8)) & 0xFF);
+                    shift++;
                 });
             }
-...
-    typename CRCType::value_type _ps_internal_get_crc() const {
-        return _crc_engine.value();
-    }
 
             // 3. Encode from start of work_buffer to a safe offset
             const size_t encode_offset = _work_buffer.size() - requiredEncodedSize;
@@ -174,12 +171,11 @@ private:
             // 4. Send in blocks
             const size_t total_encoded = result.value();
             const size_t num_chunks = (total_encoded + 31) / 32;
-            auto work_it = _work_buffer.begin() + encode_offset;
             
-            etl::for_each(etl::make_index_iterator(0), etl::make_index_iterator(num_chunks), [&](size_t chunk_idx) {
+            etl::for_each(etl::make_index_iterator(0), etl::make_index_iterator(num_chunks), [this, &stream, &total_encoded, encode_offset](size_t chunk_idx) {
                 const size_t offset = chunk_idx * 32;
                 const size_t chunk_size = (total_encoded - offset > 32) ? 32 : (total_encoded - offset);
-                stream.write(etl::addressof(*(work_it + offset)), chunk_size);
+                stream.write(_work_buffer.data() + encode_offset + offset, chunk_size);
                 _watchdog.feed();
             });
             
@@ -193,12 +189,11 @@ private:
 
             const size_t total_encoded = result.value();
             const size_t num_chunks = (total_encoded + 31) / 32;
-            auto work_it = _work_buffer.begin();
 
-            etl::for_each(etl::make_index_iterator(0), etl::make_index_iterator(num_chunks), [&](size_t chunk_idx) {
+            etl::for_each(etl::make_index_iterator(0), etl::make_index_iterator(num_chunks), [this, &stream, &total_encoded](size_t chunk_idx) {
                 const size_t offset = chunk_idx * 32;
                 const size_t chunk_size = (total_encoded - offset > 32) ? 32 : (total_encoded - offset);
-                stream.write(etl::addressof(*(work_it + offset)), chunk_size);
+                stream.write(_work_buffer.data() + offset, chunk_size);
                 _watchdog.feed();
             });
 
@@ -208,6 +203,10 @@ private:
     }
 
 private:
+    typename CRCType::value_type _ps_internal_get_crc() const {
+        return _crc_engine.value();
+    }
+
     void processFrame(size_t size) {
         Codec codec;
         // COBS decode is in-place safe in our implementation.

@@ -27,21 +27,25 @@ public:
         }
 
         auto out_it = output.begin();
-        auto code_it = out_it++; 
+        auto code_it = out_it; 
+        out_it++;
         uint8_t code = 1;
 
-        etl::for_each(input.begin(), input.end(), [&](uint8_t byte) {
+        etl::for_each(input.begin(), input.end(), [this, &out_it, &code, &code_it](uint8_t byte) {
             if (byte == Marker) {
                 *code_it = code;
                 code = 1;
-                code_it = out_it++;
+                code_it = out_it;
+                out_it++;
             } else {
-                *out_it++ = byte;
+                *out_it = byte;
+                out_it++;
                 code++;
                 if (code == 0xFF) {
                     *code_it = code;
                     code = 1;
-                    code_it = out_it++;
+                    code_it = out_it;
+                    out_it++;
                 }
             }
         });
@@ -61,10 +65,11 @@ public:
         auto out_it = output.begin();
         auto in_it = input.begin();
         
-        etl::for_each(input.begin(), input.end(), [&](const uint8_t&) {
+        etl::for_each(input.begin(), input.end(), [this, &in_it, &out_it, &input, &output](const uint8_t&) {
             if (in_it == input.end()) return;
 
-            uint8_t code = *in_it++;
+            uint8_t code = *in_it;
+            in_it++;
             const size_t num_literals = code - 1;
 
             if (in_it + num_literals > input.end()) {
@@ -82,7 +87,8 @@ public:
 
             if (code < 0xFF && in_it != input.end()) {
                 if (out_it != output.end()) {
-                    *out_it++ = Marker;
+                    *out_it = Marker;
+                    out_it++;
                 }
             }
         });
