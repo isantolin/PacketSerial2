@@ -78,10 +78,12 @@ public:
             }
 
             if (num_literals > 0) {
-                if (etl::distance(out_it, output.end()) >= static_cast<ptrdiff_t>(num_literals)) {
-                    etl::copy_n(in_it, num_literals, out_it);
-                    out_it += num_literals;
+                if (etl::distance(out_it, output.end()) < static_cast<ptrdiff_t>(num_literals)) {
+                    in_it = input.end();
+                    return;
                 }
+                etl::copy_n(in_it, num_literals, out_it);
+                out_it += num_literals;
                 in_it += num_literals;
             }
 
