@@ -34,12 +34,12 @@ PacketSerial<COBS> ps(rx_storage, work_buffer);
 
 ## 3. Handling Packets
 
-Register a callback function (Delegate) to handle incoming decoded packets.
+Register one or more callback functions (Delegates) to handle incoming decoded packets.
 
+### Simple Registration
 ```cpp
 void onPacket(etl::span<const uint8_t> packet) {
-    // packet.data() contains the data
-    // packet.size() contains the size
+    // Process your data
 }
 
 void setup() {
@@ -47,13 +47,26 @@ void setup() {
     // Bind your function using etl::make_delegate
     ps.setPacketHandler(etl::make_delegate(onPacket));
 }
+```
 
-void loop() {
-    ps.update(Serial);
+### Multi-Subscriber (Advanced)
+PacketSerial v2.2 supports multiple independent handlers. This is useful for decoupling logic (e.g., one handler for data processing, another for logging).
+
+```cpp
+void onPacketData(etl::span<const uint8_t> packet) { /* ... */ }
+void onPacketLog(etl::span<const uint8_t> packet) { /* ... */ }
+
+void setup() {
+    ps.addPacketHandler(etl::make_delegate(onPacketData));
+    ps.addPacketHandler(etl::make_delegate(onPacketLog));
 }
 ```
 
-## 4. Advanced: Using CRC
+## 4. Compile-Time Safety
+
+The library uses C++17 `static_assert` to ensure that your configuration is valid. If you try to use a Codec that does not inherit from `ICodec`, the compiler will generate a clear error message.
+
+## 5. Advanced: Using CRC
 
 PacketSerial v2.2 supports full symmetric data integrity. When a CRC is specified, it is automatically calculated and appended during `send()`, and verified during `update()`.
 

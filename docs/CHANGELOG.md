@@ -5,10 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/)
 and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.html).
 
-## [2.2.0] 2026-04-20
+## [2.2.0] 2026-04-26
 
 ### Added
-- **Pure-ETL Implementation**: Completely eradicated all manual `for` and `while` loops in the core logic.
+- **Pure-ETL Implementation**: Completely eradicated all manual `for` and `while` loops in the core logic using `etl::algorithm`.
+- **Multi-Subscriber Support**: Added `addPacketHandler` to allow multiple `etl::delegate` subscribers (up to 2 by default) per instance.
+- **Optimized Marker Search**: Integrated `etl::find` for accelerated packet boundary detection in the circular buffer.
+- **Compile-Time Contract Validation**: Used C++17 `static_assert` and `etl::is_base_of` to enforce Codec interface integrity at compile time.
+- **Internal State Bitset**: Replaced boolean flags with `etl::bitset` for memory-efficient and explicit state management.
 - **SIL-2 Compliance Patterns**: Strict determinism with explicit lambda captures and separated increment operations.
 - **Bulk-Write Optimization**: Dramatic performance boost (up to 75%) on Arduino by sending data in 32-byte blocks.
 - **Symmetric CRC Support**: Full support for CRC in the `send()` pipeline, compatible with any ETL CRC type.
@@ -16,9 +20,11 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
 - **PacketSerialBase**: New base class to minimize template bloat and Flash consumption.
 
 ### Changed
+- **API Extension**: `addPacketHandler` allows adding handlers without clearing previous ones.
+- **API Consistency**: `setPacketHandler` remains for backward compatibility, clearing existing handlers before adding the new one.
 - **Breaking Change**: `send()` is now public and fully supports integrated CRC.
 - **API Purism**: Replaced all remaining raw pointer arithmetic and manual indexing `[]` with ETL iterators.
-- **Metadata**: Updated `library.properties` and `keywords.txt` for the Arduino IDE.
+- **Metadata**: Updated `library.properties` to version 2.2.0 and unified maintainer information.
 
 ## [2.0.0] 2026-03-24
 

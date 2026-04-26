@@ -19,13 +19,14 @@ Esta biblioteca ha sido rediseñada siguiendo principios de ingeniería para sis
 *   **Buffers Estáticos**: Toda la memoria para RX/TX debe ser provista por el usuario, garantizando un uso de RAM conocido en tiempo de compilación.
 
 ### 2. Integración Profunda con ETL (Embedded Template Library)
-*   **Algoritmos Optimizados**: Uso de `etl::algorithm` (`copy`, `for_each`) para el procesamiento de datos, permitiendo optimizaciones de hardware específicas.
-*   **Callbacks mediante `etl::delegate`**: Sustitución de punteros a funciones por delegados eficientes.
-*   **Manejo de Errores con `etl::expected`**: Gestión de errores tipada y robusta.
+*   **Algoritmos Optimizados**: Uso de `etl::algorithm` (`find`, `copy`, `for_each`) con búsqueda acelerada de marcadores para el procesamiento de datos.
+*   **Multi-Subscriber mediante `etl::delegate`**: Soporte para múltiples controladores de paquetes registrados simultáneamente.
+*   **Manejo de Errores con `etl::expected`**: Gestión de errores tipada y robusta en toda la API interna.
 
 ### 3. Estándar C++17 "Zero-Cost Abstractions"
-*   **Polimorfismo en Tiempo de Compilación**: Uso de **CRTP** (Curiously Recurring Template Pattern) para eliminar el overhead de VTables.
+*   **Polimorfismo en Tiempo de Compilación**: Uso de **CRTP** (Curiously Recurring Template Pattern) y **static_assert** para validación de contratos en tiempo de compilación.
 *   **Zero-Copy**: Uso extensivo de `etl::span` para vistas de datos sin copias innecesarias.
+
 
 ---
 

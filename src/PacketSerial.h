@@ -8,12 +8,24 @@
 #include <etl/expected.h>
 #include <etl/algorithm.h>
 #include <etl/type_traits.h>
+#include <etl/bitset.h>
+#include <etl/vector.h>
 
 #include "ErrorCode.h"
 #include "ICodec.h"
 #include "Safety.h"
 
 namespace PacketSerial2 {
+
+/**
+ * @brief Internal state flags for PacketSerial.
+ */
+enum class StateFlag : uint8_t {
+    BufferOverflow = 0,
+    InvalidChecksum = 1,
+    InSync = 2,
+    StateError = 3
+};
 
 /**
  * @brief Null CRC implementation (Default).
@@ -33,7 +45,31 @@ public:
     using PacketHandler = etl::delegate<void(etl::span<const uint8_t>)>;
     using ErrorHandler = etl::delegate<void(ErrorCode)>;
 
-    void setPacketHandler(PacketHandler handler) { _onPacket = handler; }
+    /**
+     * @brief Set a single packet handler. This will clear any previously registered handlers.
+     * @param handler The delegate to be called when a packet is received.
+     */
+    void setPacketHandler(PacketHandler handler) { 
+        _onPacket.clear();
+        if (!_onPacket.full()) {
+            _onPacket.push_back(handler); 
+        }
+    }
+
+    /**
+     * @brief Add a packet handler to the list of subscribers.
+     * @param handler The delegate to be called when a packet is received.
+     */
+    void addPacketHandler(PacketHandler handler) { 
+        if (!_onPacket.full()) {
+            _onPacket.push_back(handler); 
+        }
+    }
+
+    /**
+     * @brief Set the error handler.
+     * @param handler The delegate to be called when an error occurs.
+     */
     void setErrorHandler(ErrorHandler handler) { _onError = handler; }
 
 protected:
@@ -41,7 +77,13 @@ protected:
         if (_onError) _onError(error);
     }
 
-    PacketHandler _onPacket;
+    void dispatchPacket(etl::span<const uint8_t> packet) {
+        etl::for_each(_onPacket.begin(), _onPacket.end(), [&packet](PacketHandler& handler) {
+            handler(packet);
+        });
+    }
+
+    etl::vector<PacketHandler, 2> _onPacket;
     ErrorHandler _onError;
 };
 
@@ -55,6 +97,8 @@ template <
     typename WatchdogPolicy = NoWatchdog
 >
 class PacketSerial : public PacketSerialBase {
+    static_assert(etl::is_base_of<ICodec<Codec>, Codec>::value, "Codec must inherit from ICodec<Codec>");
+
 public:
     static constexpr size_t CRCSize = etl::is_same<CRCType, NoCRC>::value ? 0 : sizeof(typename CRCType::value_type);
 
@@ -65,7 +109,9 @@ public:
         : _rx_buffer(rx_storage.data(), rx_storage.size()), 
           _work_buffer(work_buffer),
           _lock(lock),
-          _watchdog(watchdog) {}
+          _watchdog(watchdog) {
+              _state.reset();
+          }
 
     /**
      * @brief Process incoming data from a stream.
@@ -75,17 +121,22 @@ public:
         size_t available = static_cast<size_t>(stream.available());
         if (available == 0) return;
 
-        // Purist iteration: Use work_buffer span to drive the loop for 'available' elements
-        size_t to_read = (available > _work_buffer.size()) ? _work_buffer.size() : available;
-        
-        etl::for_each(_work_buffer.begin(), _work_buffer.begin() + to_read, [this, &stream](uint8_t&) {
+        // Aggressively read into circular buffer
+        for(size_t i = 0; i < available; ++i) {
             uint8_t data = static_cast<uint8_t>(stream.read());
-            if (data == Codec::Marker) {
-                this->_ps_internal_process_marker();
-            } else {
-                this->_ps_internal_push_rx(data);
+            _lock.lock();
+            if (_rx_buffer.full()) {
+                _rx_buffer.clear();
+                _state.set(static_cast<size_t>(StateFlag::BufferOverflow));
+                _lock.unlock();
+                this->handleError(ErrorCode::BufferOverflow);
+                return;
             }
-        });
+            _rx_buffer.push(data);
+            _lock.unlock();
+        }
+
+        this->_ps_internal_process_buffer();
     }
 
     /**
@@ -156,16 +207,33 @@ public:
     }
 
 private:
+    void _ps_internal_process_buffer() {
+        while (true) {
+            auto it = etl::find(_rx_buffer.begin(), _rx_buffer.end(), Codec::Marker);
+            if (it == _rx_buffer.end()) break;
+
+            size_t frame_size = etl::distance(_rx_buffer.begin(), it);
+            
+            if (frame_size > 0) {
+                if (frame_size <= _work_buffer.size()) {
+                    etl::copy_n(_rx_buffer.begin(), frame_size, _work_buffer.begin());
+                    this->processFrame(frame_size);
+                } else {
+                    this->handleError(ErrorCode::BufferFull);
+                }
+            }
+            
+            _lock.lock();
+            for(size_t i = 0; i <= frame_size; ++i) _rx_buffer.pop();
+            _lock.unlock();
+        }
+    }
+
     template <typename StreamType>
     void _ps_internal_block_send(StreamType& stream, etl::span<const uint8_t> data) {
-        // Send in chunks of 32 using the data itself to drive the loop
-        // We use a functional approach to process the span in 32-byte segments
         size_t total = data.size();
         size_t offset = 0;
         
-        // As long as we have data, we process it. Since we can't use while,
-        // we use a recursive-like for_each on a proxy if needed, but for simplicity
-        // and performance, we'll use for_each on the span with internal state.
         etl::for_each(data.begin(), data.end(), [this, &stream, &offset, total, &data](const uint8_t& /*byte*/) {
             if ((offset % 32) == 0) {
                 size_t chunk = (total - offset > 32) ? 32 : (total - offset);
@@ -176,53 +244,27 @@ private:
         });
     }
 
-    void _ps_internal_process_marker() {
-        size_t bytes_to_process = 0;
-        _lock.lock();
-        bytes_to_process = _rx_buffer.size();
-        if (bytes_to_process > 0) {
-            etl::copy(_rx_buffer.begin(), _rx_buffer.end(), _work_buffer.begin());
-            _rx_buffer.clear();
-        }
-        _lock.unlock();
-
-        if (bytes_to_process > 0) {
-            processFrame(bytes_to_process);
-        }
-    }
-
-    void _ps_internal_push_rx(uint8_t data) {
-        _lock.lock();
-        if (_rx_buffer.full()) {
-            _rx_buffer.clear(); 
-            _lock.unlock();
-            this->handleError(ErrorCode::BufferOverflow);
-        } else {
-            _rx_buffer.push(data);
-            _lock.unlock();
-        }
-    }
-
-    void processFrame(size_t size) {
+    etl::expected<void, ErrorCode> processFrame(size_t size) {
         Codec codec;
         auto result = codec.decode(etl::span<const uint8_t>(this->_work_buffer.data(), size), 
                                    this->_work_buffer);
 
         if (!result.has_value()) {
             this->handleError(result.error());
-            return;
+            return etl::unexpected(result.error());
         }
 
         size_t decodedSize = result.value();
         this->_watchdog.feed();
+        size_t payloadSize = decodedSize;
 
         if constexpr (CRCSize > 0) {
             if (decodedSize < CRCSize) {
                 this->handleError(ErrorCode::IncompletePacket);
-                return;
+                return etl::unexpected(ErrorCode::IncompletePacket);
             }
             
-            size_t payloadSize = decodedSize - CRCSize;
+            payloadSize = decodedSize - CRCSize;
             this->_crc_engine.reset();
             etl::for_each(this->_work_buffer.begin(), this->_work_buffer.begin() + payloadSize, [this](uint8_t byte) {
                 this->_crc_engine.add(byte);
@@ -237,14 +279,14 @@ private:
             });
             
             if (this->_crc_engine.value() != receivedCrc) {
+                _state.set(static_cast<size_t>(StateFlag::InvalidChecksum));
                 this->handleError(ErrorCode::InvalidChecksum);
-                return;
+                return etl::unexpected(ErrorCode::InvalidChecksum);
             }
-            
-            if (this->_onPacket) this->_onPacket(etl::span<const uint8_t>(this->_work_buffer.data(), payloadSize));
-        } else {
-            if (this->_onPacket) this->_onPacket(etl::span<const uint8_t>(this->_work_buffer.data(), decodedSize));
         }
+        
+        this->dispatchPacket(etl::span<const uint8_t>(this->_work_buffer.data(), payloadSize));
+        return {};
     }
 
     etl::circular_buffer_ext<uint8_t> _rx_buffer;
@@ -254,6 +296,7 @@ private:
     WatchdogPolicy _watchdog;
 
     CRCType _crc_engine;
+    etl::bitset<8> _state;
 };
 
 } // namespace PacketSerial2

@@ -16,7 +16,7 @@ public:
     MyService() : _ps(_rx_storage, _work_buffer) {}
 
     void begin() {
-        _ps.setPacketHandler(etl::make_delegate(*this, &MyService::onPacket));
+        _ps.addPacketHandler(etl::make_delegate(*this, &MyService::onPacket));
         _ps.setErrorHandler(etl::make_delegate(*this, &MyService::onError));
     }
 

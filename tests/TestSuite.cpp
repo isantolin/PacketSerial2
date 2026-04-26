@@ -86,7 +86,7 @@ bool test_ps_cobs_no_crc() {
     PacketSerial<COBS, NoCRC> ps(rx, work);
     MockStream<256> stream;
     reset_flags();
-    ps.setPacketHandler(etl::make_delegate<onPacket>());
+    ps.addPacketHandler(etl::make_delegate<onPacket>());
 
     uint8_t data[] = { 1, 2, 3 };
     ps.send(stream, etl::span<const uint8_t>(data, 3));
@@ -101,7 +101,7 @@ bool test_ps_cobs_crc32() {
     PacketSerial<COBS, etl::crc32> ps(rx, work);
     MockStream<256> stream;
     reset_flags();
-    ps.setPacketHandler(etl::make_delegate<onPacket>());
+    ps.addPacketHandler(etl::make_delegate<onPacket>());
 
     uint8_t data[] = { 0xAA, 0xBB, 0xCC, 0xDD };
     ps.send(stream, etl::span<const uint8_t>(data, 4));
@@ -116,7 +116,7 @@ bool test_ps_slip_no_crc() {
     PacketSerial<SLIP, NoCRC> ps(rx, work);
     MockStream<256> stream;
     reset_flags();
-    ps.setPacketHandler(etl::make_delegate<onPacket>());
+    ps.addPacketHandler(etl::make_delegate<onPacket>());
 
     uint8_t data[] = { 0xC0, 0x01, 0xDB };
     ps.send(stream, etl::span<const uint8_t>(data, 3));
@@ -131,7 +131,7 @@ bool test_ps_slip_crc16() {
     PacketSerial<SLIP, etl::crc16> ps(rx, work);
     MockStream<256> stream;
     reset_flags();
-    ps.setPacketHandler(etl::make_delegate<onPacket>());
+    ps.addPacketHandler(etl::make_delegate<onPacket>());
 
     uint8_t data[] = { 10, 20, 30 };
     ps.send(stream, etl::span<const uint8_t>(data, 3));
@@ -146,7 +146,7 @@ bool test_ps_invalid_crc() {
     PacketSerial<COBS, etl::crc16> ps(rx, work);
     MockStream<256> stream;
     reset_flags();
-    ps.setPacketHandler(etl::make_delegate<onPacket>());
+    ps.addPacketHandler(etl::make_delegate<onPacket>());
     ps.setErrorHandler(etl::make_delegate<onError>());
 
     uint8_t data[] = { 1, 2, 3, 4 };
@@ -162,20 +162,46 @@ bool test_ps_invalid_crc() {
     return !packet_received && last_error == ErrorCode::InvalidChecksum;
 }
 
+// --- Multi-Subscriber Test ---
+
+static bool second_handler_called = false;
+void onPacketSecond(etl::span<const uint8_t>) {
+    second_handler_called = true;
+}
+
+bool test_ps_multi_subscriber() {
+    etl::array<uint8_t, 64> rx; etl::array<uint8_t, 128> work;
+    PacketSerial<COBS, NoCRC> ps(rx, work);
+    MockStream<256> stream;
+    reset_flags();
+    second_handler_called = false;
+    
+    ps.addPacketHandler(etl::make_delegate<onPacket>());
+    ps.addPacketHandler(etl::make_delegate<onPacketSecond>());
+
+    uint8_t data[] = { 1, 2, 3 };
+    ps.send(stream, etl::span<const uint8_t>(data, 3));
+    stream.injectIncomingData(etl::span<const uint8_t>(stream.getTransmittedData().data(), stream.getTransmittedData().size()));
+    ps.update(stream);
+
+    return packet_received && second_handler_called;
+}
+
 // --- Main Runner ---
 
 int main() {
     std::cout << "PacketSerial2 Extended Test Suite" << std::endl;
     std::cout << "=================================" << std::endl;
 
-    etl::array<TestResult, 7> results = {{
+    etl::array<TestResult, 8> results = {{
         RUN_TEST(test_cobs_roundtrip),
         RUN_TEST(test_slip_roundtrip),
         RUN_TEST(test_ps_cobs_no_crc),
         RUN_TEST(test_ps_cobs_crc32),
         RUN_TEST(test_ps_slip_no_crc),
         RUN_TEST(test_ps_slip_crc16),
-        RUN_TEST(test_ps_invalid_crc)
+        RUN_TEST(test_ps_invalid_crc),
+        RUN_TEST(test_ps_multi_subscriber)
     }};
 
     bool all_passed = true;

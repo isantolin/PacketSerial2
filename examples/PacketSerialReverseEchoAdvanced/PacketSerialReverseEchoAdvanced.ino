@@ -1,6 +1,6 @@
 /**
  * @file PacketSerialReverseEchoAdvanced.ino
- * @brief Industrial Advanced configuration (v2.1).
+ * @brief Industrial Advanced configuration (v2.2).
  * 
  * Demonstrates:
  * 1. Data Integrity: using etl::crc16.

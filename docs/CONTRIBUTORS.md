@@ -1,6 +1,7 @@
 # Contributors
 
-- Christopher Baker [@bakercp](https://github.com/bakercp) - Primary author.
+- Ignacio Santolin [@ignaciosantolin](https://github.com/ignaciosantolin) - Current maintainer.
+- Christopher Baker [@bakercp](https://github.com/bakercp) - Original author and former maintainer.
 - Antoine Villeret [@avilleret](https://github.com/avilleret) - SLIP Encoding.
 - Anton Viktorov [@latonita](https://github.com/latonita) - Bugfixes.
 - [@per1234](https://github.com/per1234) - Metadata.
