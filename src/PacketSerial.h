@@ -121,9 +121,11 @@ public:
         size_t available = static_cast<size_t>(stream.available());
         if (available == 0) return;
 
-        // Aggressively read into circular buffer
         for(size_t i = 0; i < available; ++i) {
-            uint8_t data = static_cast<uint8_t>(stream.read());
+            int c = stream.read();
+            if (c < 0) break;
+            uint8_t data = static_cast<uint8_t>(c);
+            
             _lock.lock();
             if (_rx_buffer.full()) {
                 _rx_buffer.clear();
@@ -134,9 +136,11 @@ public:
             }
             _rx_buffer.push(data);
             _lock.unlock();
+            
+            if (data == Codec::Marker) {
+                this->_ps_internal_process_buffer();
+            }
         }
-
-        this->_ps_internal_process_buffer();
     }
 
     /**
