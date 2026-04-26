@@ -40,31 +40,29 @@ public:
     etl::expected<size_t, ErrorCode> decode_impl(etl::span<const uint8_t> input, etl::span<uint8_t> output) {
         if (input.empty()) return 0;
         
-        auto in_it = input.begin();
-        auto out_it = output.begin();
+        auto in_ptr = input.data();
+        auto in_end = in_ptr + input.size();
+        auto out_ptr = output.data();
+        auto out_end = out_ptr + output.size();
         
-        while (in_it < input.end()) {
-            uint8_t code = *in_it++;
-            size_t num_literals = code - 1;
+        while (in_ptr < in_end) {
+            uint8_t code = *in_ptr++;
+            uint8_t num_literals = code - 1;
             
-            if (in_it + num_literals > input.end()) return etl::unexpected(ErrorCode::MalformedFrame);
+            if (in_ptr + num_literals > in_end) return etl::unexpected(ErrorCode::MalformedFrame);
             
-            if (num_literals > 0) {
-                if (etl::distance(out_it, output.end()) < static_cast<ptrdiff_t>(num_literals)) 
-                    return etl::unexpected(ErrorCode::BufferFull);
-                
-                // Use memmove if they overlap, but copy_n is safe if out <= in
-                etl::copy_n(in_it, num_literals, out_it);
-                in_it += num_literals;
-                out_it += num_literals;
+            if (out_ptr + num_literals > out_end) return etl::unexpected(ErrorCode::BufferFull);
+            
+            for (uint8_t i = 0; i < num_literals; ++i) {
+                *out_ptr++ = *in_ptr++;
             }
             
-            if (code < 0xFF && in_it < input.end()) {
-                if (out_it == output.end()) return etl::unexpected(ErrorCode::BufferFull);
-                *out_it++ = Marker;
+            if (code < 0xFF && in_ptr < in_end) {
+                if (out_ptr == out_end) return etl::unexpected(ErrorCode::BufferFull);
+                *out_ptr++ = Marker;
             }
         }
-        return etl::distance(output.begin(), out_it);
+        return static_cast<size_t>(out_ptr - output.data());
     }
 
     static constexpr size_t getEncodedBufferSize_impl(size_t unencodedBufferSize) {

@@ -121,24 +121,25 @@ public:
         size_t available = static_cast<size_t>(stream.available());
         if (available == 0) return;
 
-        for(size_t i = 0; i < available; ++i) {
+        // Limit read to available buffer space
+        size_t free_space = _rx_buffer.capacity() - _rx_buffer.size();
+        size_t to_read = (available < free_space) ? available : free_space;
+
+        for(size_t i = 0; i < to_read; ++i) {
             int c = stream.read();
             if (c < 0) break;
             uint8_t data = static_cast<uint8_t>(c);
             
             _lock.lock();
-            if (_rx_buffer.full()) {
-                _rx_buffer.clear();
-                _state.set(static_cast<size_t>(StateFlag::BufferOverflow));
-                _lock.unlock();
-                this->handleError(ErrorCode::BufferOverflow);
-                return;
-            }
             _rx_buffer.push(data);
             _lock.unlock();
             
             if (data == Codec::Marker) {
                 this->_ps_internal_process_buffer();
+                // After processing a frame, more space might be available
+                free_space = _rx_buffer.capacity() - _rx_buffer.size();
+                // We don't update to_read here, we'll just read up to the original limit
+                // and the next update() call will handle the rest.
             }
         }
     }
