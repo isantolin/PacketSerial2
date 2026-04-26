@@ -1,9 +1,7 @@
 #pragma once
 
-/**
- * @file Safety.h
- * @brief Safety policies for ISR protection and Watchdog integration.
- */
+#include <stdint.h>
+#include <stddef.h>
 
 namespace PacketSerial2 {
 
@@ -23,6 +21,16 @@ struct NoWatchdog {
 };
 
 /**
+ * @brief Default policy: No CRC validation.
+ */
+struct NoCRC {
+    static constexpr size_t ByteSize = 0;
+    inline void reset() {}
+    inline void add(uint8_t) {}
+    inline uint32_t value() const { return 0; }
+};
+
+/**
  * @brief Example of an Arduino Atomic Lock.
  * This can be used as a template parameter for PacketSerial.
  */
@@ -35,13 +43,3 @@ struct ArduinoAtomicLock {
 #endif
 
 } // namespace PacketSerial2
-
-/**
- * @brief Default policy: No CRC validation.
- */
-struct NoCRC {
-    static constexpr size_t ByteSize = 0;
-    inline void reset() {}
-    inline void add(uint8_t) {}
-    inline uint32_t value() const { return 0; }
-};
