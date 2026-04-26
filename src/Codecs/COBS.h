@@ -64,21 +64,24 @@ public:
 
         auto out_it = output.begin();
         auto in_it = input.begin();
+        ErrorCode error = ErrorCode::None;
         
-        etl::for_each(input.begin(), input.end(), [this, &in_it, &out_it, &input, &output](const uint8_t&) {
-            if (in_it == input.end()) return;
+        etl::for_each(input.begin(), input.end(), [this, &in_it, &out_it, &input, &output, &error](const uint8_t&) {
+            if (in_it == input.end() || error != ErrorCode::None) return;
 
             uint8_t code = *in_it;
             in_it++;
             const size_t num_literals = code - 1;
 
             if (in_it + num_literals > input.end()) {
+                error = ErrorCode::MalformedFrame;
                 in_it = input.end();
                 return;
             }
 
             if (num_literals > 0) {
                 if (etl::distance(out_it, output.end()) < static_cast<ptrdiff_t>(num_literals)) {
+                    error = ErrorCode::BufferFull;
                     in_it = input.end();
                     return;
                 }
@@ -88,12 +91,19 @@ public:
             }
 
             if (code < 0xFF && in_it != input.end()) {
-                if (out_it != output.end()) {
-                    *out_it = Marker;
-                    out_it++;
+                if (out_it == output.end()) {
+                    error = ErrorCode::BufferFull;
+                    in_it = input.end();
+                    return;
                 }
+                *out_it = Marker;
+                out_it++;
             }
         });
+
+        if (error != ErrorCode::None) {
+            return etl::unexpected(error);
+        }
 
         return etl::distance(output.begin(), out_it);
     }
