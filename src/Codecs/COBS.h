@@ -11,30 +11,34 @@ class COBS : public ICodec<COBS> {
 public:
     static constexpr uint8_t Marker = 0x00;
 
+    static constexpr size_t getEncodedBufferSize_impl(size_t unencodedBufferSize) {
+        return unencodedBufferSize + (unencodedBufferSize / 254) + 1;
+    }
+
     etl::expected<size_t, ErrorCode> encode_impl(etl::span<const uint8_t> input, etl::span<uint8_t> output) {
         const size_t encoded_size = getEncodedBufferSize_impl(input.size());
         if (output.size() < encoded_size) return etl::unexpected(ErrorCode::BufferFull);
 
-        auto out_it = output.begin();
-        auto code_it = out_it++;
+        auto out_ptr = output.data();
+        auto code_ptr = out_ptr++;
         uint8_t code = 1;
 
         for (uint8_t byte : input) {
             if (byte == Marker) {
-                *code_it = code;
+                *code_ptr = code;
                 code = 1;
-                code_it = out_it++;
+                code_ptr = out_ptr++;
             } else {
-                *out_it++ = byte;
+                *out_ptr++ = byte;
                 if (++code == 0xFF) {
-                    *code_it = code;
+                    *code_ptr = code;
                     code = 1;
-                    code_it = out_it++;
+                    code_ptr = out_ptr++;
                 }
             }
         }
-        *code_it = code;
-        return etl::distance(output.begin(), out_it);
+        *code_ptr = code;
+        return static_cast<size_t>(out_ptr - output.data());
     }
 
     etl::expected<size_t, ErrorCode> decode_impl(etl::span<const uint8_t> input, etl::span<uint8_t> output) {
@@ -50,7 +54,6 @@ public:
             uint8_t num_literals = code - 1;
             
             if (in_ptr + num_literals > in_end) return etl::unexpected(ErrorCode::MalformedFrame);
-            
             if (out_ptr + num_literals > out_end) return etl::unexpected(ErrorCode::BufferFull);
             
             for (uint8_t i = 0; i < num_literals; ++i) {
@@ -63,10 +66,6 @@ public:
             }
         }
         return static_cast<size_t>(out_ptr - output.data());
-    }
-
-    static constexpr size_t getEncodedBufferSize_impl(size_t unencodedBufferSize) {
-        return unencodedBufferSize + (unencodedBufferSize / 254) + 1;
     }
 };
 
