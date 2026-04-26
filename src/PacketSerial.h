@@ -14,9 +14,9 @@
 namespace PacketSerial2 {
 
 template <typename Codec, 
-          typename CRCType = NoCRC,
-          typename LockPolicy = NoLock,
-          typename WatchdogPolicy = NoWatchdog>
+          typename CRCType = PacketSerial2::NoCRC,
+          typename LockPolicy = PacketSerial2::NoLock,
+          typename WatchdogPolicy = PacketSerial2::NoWatchdog>
 class PacketSerial {
 public:
     using PacketHandler = etl::delegate<void(etl::span<const uint8_t>)>;

@@ -35,3 +35,13 @@ struct ArduinoAtomicLock {
 #endif
 
 } // namespace PacketSerial2
+
+/**
+ * @brief Default policy: No CRC validation.
+ */
+struct NoCRC {
+    static constexpr size_t ByteSize = 0;
+    inline void reset() {}
+    inline void add(uint8_t) {}
+    inline uint32_t value() const { return 0; }
+};
