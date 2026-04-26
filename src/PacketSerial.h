@@ -7,7 +7,6 @@
 #include <etl/span.h>
 #include <etl/expected.h>
 #include <etl/algorithm.h>
-#include <etl/type_traits.h>
 #include "ErrorCode.h"
 #include "ICodec.h"
 #include "Safety.h"
@@ -40,21 +39,20 @@ public:
         int available = stream.available();
         if (available <= 0) return;
 
-        for (int i = 0; i < available; ++i) {
+        // Limit read to available buffer space
+        size_t free_space = _rx_buffer.capacity() - _rx_buffer.size();
+        int to_read = (available < (int)free_space) ? available : (int)free_space;
+
+        for (int i = 0; i < to_read; ++i) {
             int c = stream.read();
             if (c < 0) break;
             uint8_t data = static_cast<uint8_t>(c);
 
             if (data == Codec::Marker) {
                 this->_ps_internal_process_marker();
+                free_space = _rx_buffer.capacity() - _rx_buffer.size();
             } else {
                 _lock.lock();
-                if (_rx_buffer.full()) {
-                    _rx_buffer.clear();
-                    _lock.unlock();
-                    if (_onError) _onError(ErrorCode::BufferOverflow);
-                    return;
-                }
                 _rx_buffer.push(data);
                 _lock.unlock();
             }
@@ -70,7 +68,6 @@ public:
 
         if (encodedSizeLimit > _work_buffer.size()) return etl::unexpected(ErrorCode::BufferFull);
 
-        // Copy packet and add CRC to work buffer
         etl::copy(packet.begin(), packet.end(), _work_buffer.begin());
         if constexpr (CRCSize > 0) {
             _crc_engine.reset();
@@ -80,7 +77,6 @@ public:
         }
 
         Codec codec;
-        // Use second half of work buffer for encoding
         auto res = codec.encode(etl::span<const uint8_t>(_work_buffer.data(), totalSize), 
                                 etl::span<uint8_t>(_work_buffer.data() + totalSize, _work_buffer.size() - totalSize));
         
@@ -99,7 +95,6 @@ private:
         size_t frame_size = _rx_buffer.size();
         if (frame_size == 0) return;
 
-        // Copy from circular buffer to flat work buffer for decoding
         etl::copy(_rx_buffer.begin(), _rx_buffer.end(), _work_buffer.begin());
         _rx_buffer.clear();
 
