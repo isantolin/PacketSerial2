@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/)
 and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.html).
 
+## [2.3.0] 2026-07-12
+
+### Added
+- **COBS/R Codec Support**: Integrated the Consistent Overhead Byte Stuffing—Reduced (COBS/R) codec for high-efficiency packing without the +1 byte overhead on most messages.
+- **Multi-Subscriber Support**: Implemented `addPacketHandler` using `etl::delegate_observable` to support registering multiple callbacks simultaneously.
+- **CRCSizeHelper**: Added compile-time automatic CRC size deduction matching the ETL CRC engines (like `etl::crc16` and `etl::crc32`) which do not expose a static `ByteSize` field.
+- **Watchdog Heartbeat**: Linked `_watchdog.feed()` inside the active update loop to feed the watchdog during serial communication.
+
+### Changed
+- **Compiler/IDE Config**: Added a `.clangd` configuration to automatically specify target directory include paths for Embedded Template Library.
+
+### Fixed
+- **MockStream Header Isolation**: Resolved missing `<etl/span.h>` dependency inside `MockStream.h` causing syntax parser errors in isolation.
+
 ## [2.2.0] 2026-04-26
 
 ### Added

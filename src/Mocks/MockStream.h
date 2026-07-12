@@ -4,6 +4,7 @@
 #include <stddef.h>
 #include <etl/vector.h>
 #include <etl/deque.h>
+#include <etl/span.h>
 #include <etl/algorithm.h>
 
 namespace PacketSerial2 {
@@ -28,11 +29,10 @@ public:
      * @brief Mimics Arduino's Stream::write for bulk data.
      */
     size_t write(const uint8_t* buffer, size_t size) {
-        size_t initial_size = _tx_buffer.size();
-        etl::for_each(buffer, buffer + size, [this](uint8_t byte) {
-            this->write(byte);
-        });
-        return _tx_buffer.size() - initial_size;
+        size_t free_capacity = _tx_buffer.capacity() - _tx_buffer.size();
+        size_t to_copy = (size < free_capacity) ? size : free_capacity;
+        _tx_buffer.insert(_tx_buffer.end(), buffer, buffer + to_copy);
+        return to_copy;
     }
 
     /**

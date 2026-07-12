@@ -1,0 +1,5 @@
+CompileFlags:
+  Add:
+    - "-I/home/ignaciosantolin/PacketSerial2/tests/etl_local/include"
+    - "-I/home/ignaciosantolin/PacketSerial2/src"
+    - "-std=c++17"

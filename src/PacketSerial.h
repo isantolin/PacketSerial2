@@ -3,26 +3,44 @@
 #include <stdint.h>
 #include <stddef.h>
 #include <etl/delegate.h>
+#include <etl/delegate_observable.h>
 #include <etl/circular_buffer.h>
 #include <etl/span.h>
 #include <etl/expected.h>
 #include <etl/algorithm.h>
+#include <etl/endianness.h>
 #include "ErrorCode.h"
 #include "ICodec.h"
 #include "Safety.h"
 
 namespace PacketSerial2 {
 
+template <typename...>
+using void_t = void;
+
+template <typename T, typename = void>
+struct CRCSizeHelper {
+    static constexpr size_t value = sizeof(typename T::value_type);
+};
+
+template <typename T>
+struct CRCSizeHelper<T, void_t<decltype(T::ByteSize)>> {
+    static constexpr size_t value = T::ByteSize;
+};
+
 template <typename Codec, 
           typename CRCType = PacketSerial2::NoCRC,
           typename LockPolicy = PacketSerial2::NoLock,
-          typename WatchdogPolicy = PacketSerial2::NoWatchdog>
+          typename WatchdogPolicy = PacketSerial2::NoWatchdog,
+          size_t MaxSubscribers = 4>
 class PacketSerial {
+    static_assert(MaxSubscribers > 0, "PacketSerial: MaxSubscribers must be greater than 0");
+    static_assert(sizeof(Codec::Marker) == 1, "PacketSerial: Codec must define an 8-bit Marker");
 public:
     using PacketHandler = etl::delegate<void(etl::span<const uint8_t>)>;
     using ErrorHandler = etl::delegate<void(ErrorCode)>;
 
-    static constexpr size_t CRCSize = CRCType::ByteSize;
+    static constexpr size_t CRCSize = CRCSizeHelper<CRCType>::value;
 
     PacketSerial(etl::span<uint8_t> rx_storage, etl::span<uint8_t> work_buffer,
                  LockPolicy lock = LockPolicy(), WatchdogPolicy watchdog = WatchdogPolicy())
@@ -31,11 +49,16 @@ public:
           _lock(lock),
           _watchdog(watchdog) {}
 
-    void setPacketHandler(PacketHandler handler) { _onPacket = handler; }
+    void addPacketHandler(PacketHandler handler) { _onPacketObservers.add_observer(handler); }
+    void setPacketHandler(PacketHandler handler) {
+        _onPacketObservers.clear_observers();
+        _onPacketObservers.add_observer(handler);
+    }
     void setErrorHandler(ErrorHandler handler) { _onError = handler; }
 
     template <typename StreamType>
     void update(StreamType& stream) {
+        _watchdog.feed();
         int available = stream.available();
         if (available <= 0) return;
 
@@ -43,20 +66,7 @@ public:
         size_t free_space = _rx_buffer.capacity() - _rx_buffer.size();
         int to_read = (available < (int)free_space) ? available : (int)free_space;
 
-        for (int i = 0; i < to_read; ++i) {
-            int c = stream.read();
-            if (c < 0) break;
-            uint8_t data = static_cast<uint8_t>(c);
-
-            if (data == Codec::Marker) {
-                this->_ps_internal_process_marker();
-                free_space = _rx_buffer.capacity() - _rx_buffer.size();
-            } else {
-                _lock.lock();
-                _rx_buffer.push(data);
-                _lock.unlock();
-            }
-        }
+        update_recursive(stream, 0, to_read);
     }
 
     template <typename StreamType>
@@ -71,9 +81,13 @@ public:
         etl::copy(packet.begin(), packet.end(), _work_buffer.begin());
         if constexpr (CRCSize > 0) {
             _crc_engine.reset();
-            for (uint8_t b : packet) _crc_engine.add(b);
+            etl::for_each(packet.begin(), packet.end(), [this](uint8_t b) { _crc_engine.add(b); });
             uint32_t crc = _crc_engine.value();
-            for (size_t i = 0; i < CRCSize; ++i) _work_buffer[payloadSize + i] = (crc >> (i * 8)) & 0xFF;
+            uint8_t* dest = _work_buffer.data() + payloadSize;
+            etl::copy_n(reinterpret_cast<const uint8_t*>(&crc), CRCSize, dest);
+            if constexpr (etl::endianness::value() == etl::endian::big) {
+                etl::reverse(dest, dest + CRCSize);
+            }
         }
 
         Codec codec;
@@ -85,12 +99,31 @@ public:
         size_t encodedSize = res.value();
         uint8_t* encodedData = _work_buffer.data() + totalSize;
         
-        for (size_t i = 0; i < encodedSize; ++i) stream.write(encodedData[i]);
+        stream.write(encodedData, encodedSize);
         stream.write(Codec::Marker);
         return encodedSize + 1;
     }
 
 private:
+    template <typename StreamType>
+    void update_recursive(StreamType& stream, int bytes_read, int to_read) {
+        if (bytes_read >= to_read) return;
+
+        int c = stream.read();
+        if (c < 0) return;
+        uint8_t data = static_cast<uint8_t>(c);
+
+        if (data == Codec::Marker) {
+            this->_ps_internal_process_marker();
+        } else {
+            _lock.lock();
+            _rx_buffer.push(data);
+            _lock.unlock();
+        }
+
+        update_recursive(stream, bytes_read + 1, to_read);
+    }
+
     void _ps_internal_process_marker() {
         size_t frame_size = _rx_buffer.size();
         if (frame_size == 0) return;
@@ -113,23 +146,29 @@ private:
             }
             size_t payloadSize = decodedSize - CRCSize;
             _crc_engine.reset();
-            for (size_t i = 0; i < payloadSize; ++i) _crc_engine.add(_work_buffer[i]);
+            etl::for_each(_work_buffer.begin(), _work_buffer.begin() + payloadSize, [this](uint8_t b) {
+                _crc_engine.add(b);
+            });
             uint32_t calc = _crc_engine.value();
             uint32_t recv = 0;
-            for (size_t i = 0; i < CRCSize; ++i) recv |= (static_cast<uint32_t>(_work_buffer[payloadSize + i]) << (i * 8));
+            uint8_t* src = _work_buffer.data() + payloadSize;
+            etl::copy_n(src, CRCSize, reinterpret_cast<uint8_t*>(&recv));
+            if constexpr (etl::endianness::value() == etl::endian::big) {
+                etl::reverse(reinterpret_cast<uint8_t*>(&recv), reinterpret_cast<uint8_t*>(&recv) + CRCSize);
+            }
             if (calc != recv) {
                 if (_onError) _onError(ErrorCode::InvalidChecksum);
                 return;
             }
-            if (_onPacket) _onPacket(etl::span<const uint8_t>(_work_buffer.data(), payloadSize));
+            _onPacketObservers.notify_observers(etl::span<const uint8_t>(_work_buffer.data(), payloadSize));
         } else {
-            if (_onPacket) _onPacket(etl::span<const uint8_t>(_work_buffer.data(), decodedSize));
+            _onPacketObservers.notify_observers(etl::span<const uint8_t>(_work_buffer.data(), decodedSize));
         }
     }
 
     etl::circular_buffer_ext<uint8_t> _rx_buffer;
     etl::span<uint8_t> _work_buffer;
-    PacketHandler _onPacket;
+    etl::delegate_observable<etl::span<const uint8_t>, MaxSubscribers> _onPacketObservers;
     ErrorHandler _onError;
     LockPolicy _lock;
     WatchdogPolicy _watchdog;

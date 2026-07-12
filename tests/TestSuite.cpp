@@ -9,6 +9,7 @@
 
 #include "../src/PacketSerial.h"
 #include "../src/Codecs/COBS.h"
+#include "../src/Codecs/COBSR.h"
 #include "../src/Codecs/SLIP.h"
 #include "../src/Mocks/MockStream.h"
 
@@ -187,17 +188,52 @@ bool test_ps_multi_subscriber() {
     return packet_received && second_handler_called;
 }
 
+// --- COBS/R Tests ---
+
+bool test_cobsr_roundtrip() {
+    COBSR codec;
+    uint8_t raw[] = { 0x01, 0x02, 0x05 };
+    etl::array<uint8_t, 3> input;
+    etl::copy(raw, raw + 3, input.begin());
+    etl::array<uint8_t, 16> enc, dec;
+
+    auto res_e = codec.encode(input, enc);
+    if (!res_e.has_value()) return false;
+    if (res_e.value() != 3) return false;
+    if (enc[0] != 0x05 || enc[1] != 0x01 || enc[2] != 0x02) return false;
+
+    auto res_d = codec.decode(etl::span<const uint8_t>(enc.data(), res_e.value()), dec);
+    return res_d.has_value() && res_d.value() == 3 && etl::equal(input.begin(), input.end(), dec.begin());
+}
+
+bool test_ps_cobsr_crc32() {
+    etl::array<uint8_t, 64> rx; etl::array<uint8_t, 128> work;
+    PacketSerial<COBSR, etl::crc32> ps(rx, work);
+    MockStream<256> stream;
+    reset_flags();
+    ps.addPacketHandler(etl::make_delegate<onPacket>());
+
+    uint8_t data[] = { 0xAA, 0xBB, 0xCC, 0xDD };
+    ps.send(stream, etl::span<const uint8_t>(data, 4));
+    stream.injectIncomingData(etl::span<const uint8_t>(stream.getTransmittedData().data(), stream.getTransmittedData().size()));
+    ps.update(stream);
+
+    return packet_received && last_packet_size == 4;
+}
+
 // --- Main Runner ---
 
 int main() {
     std::cout << "PacketSerial2 Extended Test Suite" << std::endl;
     std::cout << "=================================" << std::endl;
 
-    etl::array<TestResult, 8> results = {{
+    etl::array<TestResult, 10> results = {{
         RUN_TEST(test_cobs_roundtrip),
         RUN_TEST(test_slip_roundtrip),
+        RUN_TEST(test_cobsr_roundtrip),
         RUN_TEST(test_ps_cobs_no_crc),
         RUN_TEST(test_ps_cobs_crc32),
+        RUN_TEST(test_ps_cobsr_crc32),
         RUN_TEST(test_ps_slip_no_crc),
         RUN_TEST(test_ps_slip_crc16),
         RUN_TEST(test_ps_invalid_crc),

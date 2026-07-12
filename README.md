@@ -1,15 +1,15 @@
-# PacketSerial (v2.2)
+# PacketSerial (v2.3)
 
 [![Build Status](https://travis-ci.org/bakercp/PacketSerial.svg?branch=master)](https://travis-ci.org/bakercp/PacketSerial)
 [![Software License](https://img.shields.io/badge/license-MIT-brightgreen.svg)](LICENSE.md)
 
-**PacketSerial** is an industrial-grade library that facilitates packet-based serial communication (COBS, SLIP) for Arduino and other embedded platforms. 
+**PacketSerial** is an industrial-grade library that facilitates packet-based serial communication (COBS, COBS/R, SLIP) for Arduino and other embedded platforms. 
 
-Version 2.2 is a major optimization following **SIL-2 compliance** principles: **Zero-Heap**, **Zero-STL**, and **Deterministic Performance**.
+Version 2.3 is a major optimization following **SIL-2 compliance** principles: **Zero-Heap**, **Zero-STL**, and **Deterministic Performance**.
 
 ---
 
-## ⚖️ Premisas de Modernización (v2.2)
+## ⚖️ Premisas de Modernización (v2.3)
 
 Esta biblioteca ha sido rediseñada siguiendo principios de ingeniería para sistemas críticos y de grado industrial:
 
@@ -47,7 +47,7 @@ etl::array<uint8_t, 256> workBuffer;
 
 ### 2. Instantiate and Register
 ```cpp
-// v2.2: Support for Lock Policies and Watchdog Heartbeat
+// v2.3: Support for Lock Policies, Watchdog Heartbeat, and COBS/R
 PacketSerial<COBS, NoCRC, NoLock, NoWatchdog> ps(rxStorage, workBuffer);
 
 void onPacket(etl::span<const uint8_t> packet) {

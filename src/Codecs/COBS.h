@@ -23,7 +23,7 @@ public:
         auto code_ptr = out_ptr++;
         uint8_t code = 1;
 
-        for (uint8_t byte : input) {
+        etl::for_each(input.begin(), input.end(), [&](uint8_t byte) {
             if (byte == Marker) {
                 *code_ptr = code;
                 code = 1;
@@ -36,36 +36,37 @@ public:
                     code_ptr = out_ptr++;
                 }
             }
-        }
+        });
         *code_ptr = code;
         return static_cast<size_t>(out_ptr - output.data());
     }
 
     etl::expected<size_t, ErrorCode> decode_impl(etl::span<const uint8_t> input, etl::span<uint8_t> output) {
         if (input.empty()) return 0;
-        
-        auto in_ptr = input.data();
-        auto in_end = in_ptr + input.size();
-        auto out_ptr = output.data();
-        auto out_end = out_ptr + output.size();
-        
-        while (in_ptr < in_end) {
-            uint8_t code = *in_ptr++;
-            uint8_t num_literals = code - 1;
-            
-            if (in_ptr + num_literals > in_end) return etl::unexpected(ErrorCode::MalformedFrame);
-            if (out_ptr + num_literals > out_end) return etl::unexpected(ErrorCode::BufferFull);
-            
-            for (uint8_t i = 0; i < num_literals; ++i) {
-                *out_ptr++ = *in_ptr++;
-            }
-            
-            if (code < 0xFF && in_ptr < in_end) {
-                if (out_ptr == out_end) return etl::unexpected(ErrorCode::BufferFull);
-                *out_ptr++ = Marker;
-            }
+        return decode_recursive(input.data(), input.data() + input.size(), output.data(), output.data() + output.size(), output.data());
+    }
+
+private:
+    etl::expected<size_t, ErrorCode> decode_recursive(const uint8_t* in_ptr, const uint8_t* in_end, uint8_t* out_ptr, uint8_t* out_end, uint8_t* out_start) {
+        if (in_ptr >= in_end) {
+            return static_cast<size_t>(out_ptr - out_start);
         }
-        return static_cast<size_t>(out_ptr - output.data());
+
+        uint8_t code = *in_ptr++;
+        uint8_t num_literals = code - 1;
+
+        if (in_ptr + num_literals > in_end) return etl::unexpected(ErrorCode::MalformedFrame);
+        if (out_ptr + num_literals > out_end) return etl::unexpected(ErrorCode::BufferFull);
+
+        out_ptr = etl::copy_n(in_ptr, num_literals, out_ptr);
+        in_ptr += num_literals;
+
+        if (code < 0xFF && in_ptr < in_end) {
+            if (out_ptr == out_end) return etl::unexpected(ErrorCode::BufferFull);
+            *out_ptr++ = Marker;
+        }
+
+        return decode_recursive(in_ptr, in_end, out_ptr, out_end, out_start);
     }
 };
 
