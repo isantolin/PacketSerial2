@@ -190,6 +190,76 @@ bool test_ps_multi_subscriber() {
 
 // --- COBS/R Tests ---
 
+
+bool test_ps_buffer_overflow_recovery() {
+    etl::array<uint8_t, 16> rx; etl::array<uint8_t, 64> work;
+    PacketSerial<COBS, NoCRC> ps(rx, work);
+    MockStream<256> stream;
+    reset_flags();
+    ps.addPacketHandler(etl::make_delegate<onPacket>());
+    ps.setErrorHandler(etl::make_delegate<onError>());
+
+    // Send oversized frame: 20 bytes of non-marker + Marker 0x00
+    uint8_t noise[21];
+    etl::fill_n(noise, 20, 0x55);
+    noise[20] = COBS::Marker; // Delimiter ends the oversized frame
+    stream.injectIncomingData(etl::span<const uint8_t>(noise, 21));
+    ps.update(stream); // First chunk (16 bytes)
+    ps.update(stream); // Second chunk (5 bytes including marker)
+
+    
+    bool got_overflow = (last_error == ErrorCode::BufferOverflow || last_error == ErrorCode::MalformedFrame);
+
+
+    // Now send a valid frame
+    reset_flags();
+    uint8_t data[] = { 1, 2, 3 };
+    ps.send(stream, etl::span<const uint8_t>(data, 3));
+    stream.injectIncomingData(etl::span<const uint8_t>(stream.getTransmittedData().data(), stream.getTransmittedData().size()));
+    ps.update(stream);
+
+    
+    return got_overflow && packet_received && last_packet_size == 3;
+
+}
+
+
+bool test_ps_noise_flood_without_marker() {
+    etl::array<uint8_t, 16> rx; etl::array<uint8_t, 64> work;
+    PacketSerial<COBS, NoCRC> ps(rx, work);
+    MockStream<256> stream;
+    reset_flags();
+    ps.addPacketHandler(etl::make_delegate<onPacket>());
+    ps.setErrorHandler(etl::make_delegate<onError>());
+
+    uint8_t noise[100];
+    etl::fill_n(noise, 100, 0x55);
+    stream.injectIncomingData(etl::span<const uint8_t>(noise, 100));
+
+    ps.update(stream);
+    ps.update(stream);
+    ps.update(stream);
+
+    // Inject a delimiter to terminate the noise stream and resynchronize
+    uint8_t marker = COBS::Marker;
+    stream.injectIncomingData(etl::span<const uint8_t>(&marker, 1));
+
+    // Drain the noise up to the delimiter
+    etl::array<uint8_t, 8> drain_steps;
+    etl::for_each(drain_steps.begin(), drain_steps.end(), [&](uint8_t) { ps.update(stream); });
+
+    // Now send a clean packet
+    reset_flags();
+    uint8_t data[] = { 10, 20, 30 };
+    ps.send(stream, etl::span<const uint8_t>(data, 3));
+    stream.injectIncomingData(etl::span<const uint8_t>(stream.getTransmittedData().data(), stream.getTransmittedData().size()));
+
+    etl::array<uint8_t, 4> post_steps;
+    etl::for_each(post_steps.begin(), post_steps.end(), [&](uint8_t) { ps.update(stream); });
+
+    return packet_received && last_packet_size == 3;
+}
+
 bool test_cobsr_roundtrip() {
     COBSR codec;
     uint8_t raw[] = { 0x01, 0x02, 0x05 };
@@ -227,7 +297,9 @@ int main() {
     std::cout << "PacketSerial2 Extended Test Suite" << std::endl;
     std::cout << "=================================" << std::endl;
 
-    etl::array<TestResult, 10> results = {{
+    etl::array<TestResult, 12> results = {{
+        RUN_TEST(test_ps_noise_flood_without_marker),
+        RUN_TEST(test_ps_buffer_overflow_recovery),
         RUN_TEST(test_cobs_roundtrip),
         RUN_TEST(test_slip_roundtrip),
         RUN_TEST(test_cobsr_roundtrip),

@@ -62,7 +62,13 @@ public:
         int available = stream.available();
         if (available <= 0) return;
 
-        // Limit read to available buffer space
+        if (_rx_buffer.full()) {
+            _lock.lock();
+            _rx_buffer.clear();
+            _lock.unlock();
+            if (_onError) _onError(ErrorCode::BufferOverflow);
+        }
+
         size_t free_space = _rx_buffer.capacity() - _rx_buffer.size();
         int to_read = (available < (int)free_space) ? available : (int)free_space;
 
@@ -116,6 +122,12 @@ private:
         if (data == Codec::Marker) {
             this->_ps_internal_process_marker();
         } else {
+            if (_rx_buffer.full()) {
+                _lock.lock();
+                _rx_buffer.clear();
+                _lock.unlock();
+                if (_onError) _onError(ErrorCode::BufferOverflow);
+            }
             _lock.lock();
             _rx_buffer.push(data);
             _lock.unlock();
